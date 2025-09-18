@@ -12,18 +12,16 @@ import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { NextRunCountdown } from '@/components/NextRunCountdown'; // Import the new component
 
 export const Products = () => {
   const { 
     products, 
     loading: userDataLoading, 
     logs,
-    config, // Get config from useUserData
     saveProduct, 
     deleteProduct, 
     batchUpdateProductStatus,
-    processSingleProduct, 
+    processSingleProduct, // Import the new function
   } = useUserData();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
@@ -196,7 +194,7 @@ export const Products = () => {
                             onSort={handleSort} 
                             sortConfig={sortConfig} 
                             onActiveChange={handleActiveChange}
-                            onRetry={processSingleProduct} 
+                            onRetry={processSingleProduct} // Pass the new function here
                           />
                         </AccordionContent>
                       </AccordionItem>
@@ -219,14 +217,6 @@ export const Products = () => {
           productToEdit={editingProduct}
         />
       </Dialog>
-
-      {config && (
-        <NextRunCountdown 
-          lastRunAt={config.cron_last_run_at} 
-          intervalMinutes={config.cron_interval_minutes} 
-          isCronActive={config.is_cron_active} 
-        />
-      )}
 
       {logs.length > 0 && (
         <Card>
