@@ -11,6 +11,7 @@ import { Upload, Save } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 export const Products = () => {
   const { 
@@ -184,43 +185,54 @@ export const Products = () => {
             </TabsList>
           </Tabs>
           
-          <div className="space-y-8">
+          <div className="space-y-2">
             {products.length > 0 ? (
               sortedCategories.length > 0 ? (
-                sortedCategories.map(category => {
-                  const categoryProducts = groupedProducts[category];
-                  const sortedProducts = [...categoryProducts].sort((a, b) => {
-                    if (!sortConfig) return 0;
-                    const { key, direction } = sortConfig;
-                    const valA = a[key];
-                    const valB = b[key];
-                    if (valA === valB) return 0;
-                    if (valA === null || valA === undefined) return 1;
-                    if (valB === null || valB === undefined) return -1;
-                    let comparison = 0;
-                    if (typeof valA === 'number' && typeof valB === 'number') {
-                      comparison = valA - valB;
-                    } else {
-                      comparison = String(valA).localeCompare(String(valB));
-                    }
-                    return direction === 'ascending' ? comparison : -comparison;
-                  });
+                <Accordion type="multiple" className="w-full">
+                  {sortedCategories.map(category => {
+                    const categoryProducts = groupedProducts[category];
+                    const sortedProducts = [...categoryProducts].sort((a, b) => {
+                      if (!sortConfig) return 0;
+                      const { key, direction } = sortConfig;
+                      const valA = a[key];
+                      const valB = b[key];
+                      if (valA === valB) return 0;
+                      if (valA === null || valA === undefined) return 1;
+                      if (valB === null || valB === undefined) return -1;
+                      let comparison = 0;
+                      if (typeof valA === 'number' && typeof valB === 'number') {
+                        comparison = valA - valB;
+                      } else {
+                        comparison = String(valA).localeCompare(String(valB));
+                      }
+                      return direction === 'ascending' ? comparison : -comparison;
+                    });
 
-                  return (
-                    <div key={category}>
-                      <h2 className="text-xl font-semibold mb-3 pb-2 border-b">{category}</h2>
-                      <ProductTable 
-                        products={sortedProducts} 
-                        pendingChanges={pendingChanges}
-                        onEdit={handleEditProduct} 
-                        onDelete={handleDeleteProduct} 
-                        onSort={handleSort} 
-                        sortConfig={sortConfig} 
-                        onActiveChange={handleActiveChange}
-                      />
-                    </div>
-                  );
-                })
+                    return (
+                      <AccordionItem value={category} key={category}>
+                        <AccordionTrigger className="text-xl font-semibold px-4">
+                          <div className="flex justify-between w-full items-center">
+                            <span>{category}</span>
+                            <span className="text-sm font-normal text-muted-foreground mr-4">
+                              {categoryProducts.length} products
+                            </span>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <ProductTable 
+                            products={sortedProducts} 
+                            pendingChanges={pendingChanges}
+                            onEdit={handleEditProduct} 
+                            onDelete={handleDeleteProduct} 
+                            onSort={handleSort} 
+                            sortConfig={sortConfig} 
+                            onActiveChange={handleActiveChange}
+                          />
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
               ) : (
                 <p className="text-center text-gray-500 py-4">No products match the current filter.</p>
               )
