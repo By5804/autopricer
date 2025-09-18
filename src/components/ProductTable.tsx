@@ -77,8 +77,8 @@ export function ProductTable({ products, pendingChanges, onEdit, onDelete, onSor
           <TableHead className="text-right group cursor-pointer select-none" onClick={() => onSort('competitorPrice')}>
             Competitor Price {renderSortIcon('competitorPrice')}
           </TableHead>
-          <TableHead className="text-right group cursor-pointer select-none" onClick={() => onSort('competitorStock')}>
-            Competitor Stock {renderSortIcon('competitorStock')}
+          <TableHead className="text-right group cursor-pointer select-none" onClick={() => onSort('competitorSoldCount')}>
+            Competitor Sold {renderSortIcon('competitorSoldCount')}
           </TableHead>
           <TableHead className="group cursor-pointer select-none" onClick={() => onSort('status')}>
             Status {renderSortIcon('status')}
@@ -113,7 +113,7 @@ export function ProductTable({ products, pendingChanges, onEdit, onDelete, onSor
               <TableCell className="text-right">
                 {formatPrice(product.competitorPrice)}
               </TableCell>
-              <TableCell className="text-right">{formatNumber(product.competitorStock)}</TableCell>
+              <TableCell className="text-right">{formatNumber(product.competitorSoldCount)}</TableCell>
               <TableCell>
                 <Badge variant={getStatusVariant(product.status)}>{product.status}</Badge>
               </TableCell>
