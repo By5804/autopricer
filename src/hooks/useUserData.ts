@@ -276,11 +276,11 @@ const useUserData = () => {
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
     if (!user || updates.length === 0) {
-      console.warn('Batch update skipped: No user or no updates provided.');
+      console.warn('[useUserData] Batch update skipped: No user or no updates provided.');
       return false;
     }
     try {
-      console.log(`Attempting to batch update ${updates.length} products for user ${user.id}`);
+      console.log(`[useUserData] Attempting to batch update ${updates.length} products for user ${user.id}`);
       const updatePromises = updates.map(({ productId, isActive }) =>
         supabase
           .from('user_products')
@@ -292,9 +292,9 @@ const useUserData = () => {
           .eq('product_id', productId)
           .then(response => {
             if (response.error) {
-              console.error(`Supabase update error for product ${productId}:`, response.error);
+              console.error(`[useUserData] Supabase update error for product ${productId}:`, response.error);
             } else {
-              console.log(`Successfully updated product ${productId} to isActive: ${isActive}`);
+              console.log(`[useUserData] Successfully updated product ${productId} to isActive: ${isActive}`);
             }
             return response;
           })
@@ -304,22 +304,24 @@ const useUserData = () => {
 
       const errors = results.filter(result => result.error);
       if (errors.length > 0) {
-        errors.forEach(errorResult => console.error('Batch update failed for some products:', errorResult.error));
+        errors.forEach(errorResult => console.error('[useUserData] Batch update failed for some products:', errorResult.error));
         throw new Error('Some product updates failed. Check console for details.');
       }
 
       setProducts(prev => {
         const updatesMap = new Map(updates.map(u => [u.productId, u.isActive]));
-        return prev.map(p =>
+        const newProducts = prev.map(p =>
           updatesMap.has(p.product_id)
             ? { ...p, isActive: updatesMap.get(p.product_id)! }
             : p
         );
+        console.log('[useUserData] Products state after successful batch update (IDs and isActive):', newProducts.map(p => ({ id: p.product_id, isActive: p.isActive })));
+        return newProducts;
       });
-      console.log('All batch updates completed successfully and local state updated.');
+      console.log('[useUserData] All batch updates completed successfully and local state updated.');
       return true;
     } catch (error) {
-      console.error('Error in batchUpdateProductStatus:', error);
+      console.error('[useUserData] Error in batchUpdateProductStatus:', error);
       return false;
     }
   };
