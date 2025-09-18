@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { ProductForm } from '@/components/ProductForm';
@@ -28,7 +29,7 @@ export const Products = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [jsonInput, setJsonInput] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
-  const [view, setView] = useState<'all' | 'active'>('all');
+  const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<number, boolean>>(new Map());
   const [openCategories, setOpenCategories] = useState<string[]>([]);
 
@@ -112,7 +113,7 @@ export const Products = () => {
     }
   };
 
-  const filteredProducts = view === 'active'
+  const filteredProducts = showActiveOnly
     ? products.filter(p => pendingChanges.get(p.product_id) ?? p.isActive)
     : products;
 
@@ -188,12 +189,14 @@ export const Products = () => {
         </CardHeader>
         <CardContent>
           <div className="flex justify-between items-center mb-4">
-            <Tabs defaultValue="all" value={view} onValueChange={(value) => setView(value as 'all' | 'active')}>
-              <TabsList>
-                <TabsTrigger value="all">All Products</TabsTrigger>
-                <TabsTrigger value="active">Active Products</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="active-products-only"
+                checked={showActiveOnly}
+                onCheckedChange={setShowActiveOnly}
+              />
+              <Label htmlFor="active-products-only">Show Active Products Only</Label>
+            </div>
             <div className="flex items-center space-x-2">
               <Button variant="outline" size="sm" onClick={handleExpandAll}>
                 <ChevronsUp className="mr-2 h-4 w-4" />
