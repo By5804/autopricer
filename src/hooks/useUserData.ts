@@ -275,8 +275,12 @@ const useUserData = () => {
   };
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
-    if (!user || updates.length === 0) return false;
+    if (!user || updates.length === 0) {
+      console.warn('Batch update skipped: No user or no updates provided.');
+      return false;
+    }
     try {
+      console.log(`Attempting to batch update ${updates.length} products for user ${user.id}`);
       const updatePromises = updates.map(({ productId, isActive }) =>
         supabase
           .from('user_products')
@@ -286,14 +290,22 @@ const useUserData = () => {
           })
           .eq('user_id', user.id)
           .eq('product_id', productId)
+          .then(response => {
+            if (response.error) {
+              console.error(`Supabase update error for product ${productId}:`, response.error);
+            } else {
+              console.log(`Successfully updated product ${productId} to isActive: ${isActive}`);
+            }
+            return response;
+          })
       );
 
       const results = await Promise.all(updatePromises);
 
       const errors = results.filter(result => result.error);
       if (errors.length > 0) {
-        errors.forEach(errorResult => console.error('Batch update error:', errorResult.error));
-        throw new Error('Some product updates failed.');
+        errors.forEach(errorResult => console.error('Batch update failed for some products:', errorResult.error));
+        throw new Error('Some product updates failed. Check console for details.');
       }
 
       setProducts(prev => {
@@ -304,7 +316,7 @@ const useUserData = () => {
             : p
         );
       });
-
+      console.log('All batch updates completed successfully and local state updated.');
       return true;
     } catch (error) {
       console.error('Error in batchUpdateProductStatus:', error);

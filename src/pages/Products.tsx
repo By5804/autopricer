@@ -54,7 +54,7 @@ export const Products = () => {
       showSuccess('Product statuses updated successfully.');
       setPendingChanges(new Map());
     } else {
-      showError('Failed to update some product statuses.');
+      showError('Failed to update some product statuses. Please check the browser console for details.');
     }
   };
 
