@@ -89,95 +89,114 @@ async function processProductLogic(supabaseAdmin, config, product) {
     const competitorList = competitorData?.data?.data || [];
     console.log(`[process-single-product] ${product.name} - After parsing scrape data. Competitors: ${competitorList?.length || 0}. Time: ${Date.now() - startTime}ms`);
 
-    if (!Array.isArray(competitorList) || competitorList.length === 0) {
-      resultPayload = { ...product, status: 'error', message: 'logic.noCompetitor' };
-      console.log(`[process-single-product] ${product.name} - No competitor found.`);
-      return resultPayload;
-    }
+    // Initialize my product data with nulls
+    let myPrice = null;
+    let myStock = null;
+    let mySoldCount = null;
+    let competitorPrice = null;
+    let competitorStoreName = null;
+    let competitorStock = null;
+    let competitorSoldCount = null;
 
-    const myProductIndex = competitorList.findIndex(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
-    console.log(`[process-single-product] ${product.name} - My product index: ${myProductIndex}. Time: ${Date.now() - startTime}ms`);
-
-    if (myProductIndex === -1) {
-      resultPayload = { ...product, status: 'error', message: 'logic.outOfStock' };
-      console.log(`[process-single-product] ${product.name} - My product not in top 10.`);
-      return resultPayload;
-    }
-    
-    const myProductData = competitorList[myProductIndex];
     let newPrice = null;
     let potentialNewPrice = null;
     let message = '';
     let messageParams = {};
-    
-    const myPrice = myProductData.price;
-    const myStock = myProductData.stock;
-    const mySoldCount = myProductData.order_record?.successful_order_count ?? myProductData.sold_count ?? 0;
-    let competitorPrice, competitorStoreName, competitorStock, competitorSoldCount;
+    let status: ProductStatus['status'] = 'idle'; // Default status
 
-    if (myProductIndex === 0) {
-        const p2 = competitorList[1];
-        if (p2) {
-            competitorPrice = p2.price;
-            competitorStoreName = p2.seller?.shop_name;
-            competitorStock = p2.stock;
-            competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
-        }
-        if (!p2) {
-            if (myProductData.price < product.maxPrice) {
-                potentialNewPrice = product.maxPrice;
-                message = 'logic.onlySellerSetMax';
-            } else {
-                message = 'logic.onlySellerAtMax';
-            }
-        } else {
-            const priceDiff = p2.price - myProductData.price;
-            if (priceDiff > (undercutValue + 90)) {
-                let tempPrice = roundPrice(p2.price - undercutValue);
-                tempPrice = Math.min(tempPrice, product.maxPrice);
-                if (tempPrice !== myProductData.price) {
-                    potentialNewPrice = tempPrice;
-                    message = 'logic.maximizeProfit';
-                } else {
-                    message = 'logic.cheapestOptimal';
-                }
-            } else {
-                message = 'logic.cheapestOptimal';
-            }
-        }
+    if (!Array.isArray(competitorList) || competitorList.length === 0) {
+      message = 'logic.noCompetitor';
+      status = 'error';
+      console.log(`[process-single-product] ${product.name} - No competitor found.`);
     } else {
-        const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
-        if (target) {
-            potentialNewPrice = roundPrice(target.price - undercutValue);
-            message = 'logic.undercutting';
-            messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
-            competitorPrice = target.price;
-            competitorStoreName = target.seller?.shop_name;
-            competitorStock = target.stock;
-            competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count ?? 0;
-        } else {
-            const p1 = competitorList[0];
-            competitorPrice = p1.price;
-            competitorStoreName = p1.seller?.shop_name;
-            competitorStock = p1.stock;
-            competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
-            message = 'logic.holdPrice';
-        }
-    }
+      const myProductDataInList = competitorList.find(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
+      const myProductIndex = myProductDataInList ? competitorList.indexOf(myProductDataInList) : -1;
+      console.log(`[process-single-product] ${product.name} - My product index: ${myProductIndex}. Time: ${Date.now() - startTime}ms`);
 
-    if (potentialNewPrice !== null && potentialNewPrice !== myProductData.price) {
-        if (potentialNewPrice < product.minPrice) {
-            message = 'logic.violatesMinPrice';
-            messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
-            potentialNewPrice = null;
-        } else if (potentialNewPrice > product.maxPrice) {
-            message = 'logic.violatesMaxPrice';
-            messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
-            potentialNewPrice = null;
-        } else {
-            newPrice = potentialNewPrice;
-        }
-    }
+      if (myProductDataInList) {
+        myPrice = myProductDataInList.price;
+        myStock = myProductDataInList.stock;
+        mySoldCount = myProductDataInList.order_record?.successful_order_count ?? myProductDataInList.sold_count ?? 0;
+      }
+
+      if (myProductIndex === -1) {
+        // My product is not in the top 10.
+        message = 'logic.outOfStock';
+        status = 'error';
+        console.log(`[process-single-product] ${product.name} - My product not in top 10.`);
+        // No price update logic here, as it's out of top 10.
+      } else if (myProductIndex === 0) {
+          // Existing logic for being the cheapest
+          const p2 = competitorList[1];
+          if (p2) {
+              competitorPrice = p2.price;
+              competitorStoreName = p2.seller?.shop_name;
+              competitorStock = p2.stock;
+              competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
+          }
+          if (!p2) {
+              if (myPrice !== null && myPrice < product.maxPrice) { // Use myPrice here
+                  potentialNewPrice = product.maxPrice;
+                  message = 'logic.onlySellerSetMax';
+              } else {
+                  message = 'logic.onlySellerAtMax';
+              }
+          } else {
+              const priceDiff = p2.price - (myPrice ?? 0); // Use myPrice here, handle null
+              if (priceDiff > (undercutValue + 90)) {
+                  let tempPrice = roundPrice(p2.price - undercutValue);
+                  tempPrice = Math.min(tempPrice, product.maxPrice);
+                  if (myPrice !== null && tempPrice !== myPrice) { // Use myPrice here
+                      potentialNewPrice = tempPrice;
+                      message = 'logic.maximizeProfit';
+                  } else {
+                      message = 'logic.cheapestOptimal';
+                  }
+              } else {
+                  message = 'logic.cheapestOptimal';
+              }
+          }
+          status = 'success'; // Default to success if logic runs
+      } else {
+          // Existing logic for not being the cheapest
+          const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+          if (target) {
+              potentialNewPrice = roundPrice(target.price - undercutValue);
+              message = 'logic.undercutting';
+              messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+              competitorPrice = target.price;
+              competitorStoreName = target.seller?.shop_name;
+              competitorStock = target.stock;
+              competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count ?? 0;
+          } else {
+              const p1 = competitorList[0];
+              competitorPrice = p1.price;
+              competitorStoreName = p1.seller?.shop_name;
+              competitorStock = p1.stock;
+              competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
+              message = 'logic.holdPrice';
+          }
+          status = 'success'; // Default to success if logic runs
+      }
+
+      // Price validation and update logic
+      if (potentialNewPrice !== null && potentialNewPrice !== myPrice) {
+          if (potentialNewPrice < product.minPrice) {
+              message = 'logic.violatesMinPrice';
+              messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
+              potentialNewPrice = null;
+              status = 'error'; // Set status to error if price violates min
+          } else if (potentialNewPrice > product.maxPrice) {
+              message = 'logic.violatesMaxPrice';
+              messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
+              potentialNewPrice = null;
+              status = 'error'; // Set status to error if price violates max
+          } else {
+              newPrice = potentialNewPrice;
+          }
+      }
+    } // End of else (if competitorList is not empty)
+
     console.log(`[process-single-product] ${product.name} - Calculated new price: ${newPrice}, message: ${message}. Time: ${Date.now() - startTime}ms`);
 
     resultPayload = { 
@@ -192,7 +211,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
       newPrice, 
       message, 
       messageParams, 
-      status: 'success' 
+      status: status // Use the determined status
     };
 
     if (newPrice !== null) {
@@ -200,7 +219,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
       const key = await crypto.subtle.importKey(
         "raw", 
         new TextEncoder().encode(secret_key), 
-        { name: "HMAC", hash: { name: "SHA-256" } }, // Corrected from SHA-265 to SHA-256
+        { name: "HMAC", hash: { name: "SHA-256" } }, 
         false, 
         ["sign"]
       );
