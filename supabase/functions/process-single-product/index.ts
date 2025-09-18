@@ -12,7 +12,8 @@ const roundPrice = (price) => Math.floor(price / 10) * 10;
 
 async function processProductLogic(supabaseAdmin, config, product) {
   const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
-  console.log(`[process-single-product] Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
+  console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
+  const startTime = Date.now();
 
   let resultPayload;
   const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
@@ -40,30 +41,30 @@ async function processProductLogic(supabaseAdmin, config, product) {
       Object.entries(scrapeParams).map(([key, value]) => [key, String(value)])
     );
     url.search = new URLSearchParams(stringifiedParams).toString();
-    console.log(`[process-single-product] Scraping URL: ${url.toString()}`);
+    console.log(`[process-single-product] ${product.name} - Before scrape fetch. Time: ${Date.now() - startTime}ms`);
 
     const competitorResponse = await fetch(url.toString());
-    console.log(`[process-single-product] Scrape response status for ${product.name}: ${competitorResponse.status}`);
+    console.log(`[process-single-product] ${product.name} - After scrape fetch. Status: ${competitorResponse.status}. Time: ${Date.now() - startTime}ms`);
     if (!competitorResponse.ok) {
       const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape gagal dengan status ${competitorResponse.status}` }));
       throw new Error(errorData.message);
     }
     const competitorData = await competitorResponse.json();
     const competitorList = competitorData.data.data;
-    console.log(`[process-single-product] Competitor list length for ${product.name}: ${competitorList?.length || 0}`);
+    console.log(`[process-single-product] ${product.name} - After parsing scrape data. Competitors: ${competitorList?.length || 0}. Time: ${Date.now() - startTime}ms`);
 
     if (!Array.isArray(competitorList) || competitorList.length === 0) {
       resultPayload = { ...product, status: 'error', message: 'logic.noCompetitor' };
-      console.log(`[process-single-product] No competitor found for ${product.name}.`);
+      console.log(`[process-single-product] ${product.name} - No competitor found.`);
       return resultPayload;
     }
 
     const myProductIndex = competitorList.findIndex(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
-    console.log(`[process-single-product] My product index for ${product.name}: ${myProductIndex}`);
+    console.log(`[process-single-product] ${product.name} - My product index: ${myProductIndex}. Time: ${Date.now() - startTime}ms`);
 
     if (myProductIndex === -1) {
       resultPayload = { ...product, status: 'error', message: 'logic.outOfStock' };
-      console.log(`[process-single-product] My product not in top 10 for ${product.name}.`);
+      console.log(`[process-single-product] ${product.name} - My product not in top 10.`);
       return resultPayload;
     }
     
@@ -141,7 +142,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
             newPrice = potentialNewPrice;
         }
     }
-    console.log(`[process-single-product] Calculated new price for ${product.name}: ${newPrice}, message: ${message}`);
+    console.log(`[process-single-product] ${product.name} - Calculated new price: ${newPrice}, message: ${message}. Time: ${Date.now() - startTime}ms`);
 
     resultPayload = { 
       ...product, 
@@ -159,7 +160,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
     };
 
     if (newPrice !== null) {
-      console.log(`[process-single-product] Attempting to update price for ${product.name} to ${newPrice}`);
+      console.log(`[process-single-product] ${product.name} - Before price update. Time: ${Date.now() - startTime}ms`);
       const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-265" }, false, ["sign"]);
       const nonce = Math.floor(Date.now() / 1000).toString();
       const updatePayload = { product_id: product.product_id, new_price: newPrice };
@@ -172,7 +173,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
           body: JSON.stringify(updatePayload)
       });
       const updateData = await updateResponse.json();
-      console.log(`[process-single-product] Price update response for ${product.name}: OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}`);
+      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`);
 
       if (updateResponse.ok && updateData.success) {
           resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
@@ -184,7 +185,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
     console.error(`[process-single-product] Error processing product ${product.name} (ID: ${product.product_id}):`, error);
     resultPayload = { ...product, status: 'error', message: 'logic.scrapeFail', messageParams: { errorMessage: error.message } };
   } finally {
-    console.log(`[process-single-product] Final result payload for ${product.name}: ${JSON.stringify(resultPayload)}`);
+    console.log(`[process-single-product] END Processing product: ${product.name} (ID: ${product.product_id}). Total Time: ${Date.now() - startTime}ms`);
     return resultPayload;
   }
 }
@@ -214,7 +215,7 @@ serve(async (req) => {
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
       .select('*')
-      .eq('user_id', user_id)
+      .eq('user_id', user_id) // FIX: Changed from user.id to user_id
       .eq('product_id', product_id)
       .single();
 
