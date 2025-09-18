@@ -32,12 +32,14 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
     }
   };
 
-  const formatNumber = (num?: number) => {
-    return num !== undefined ? num.toLocaleString('id-ID') : '-';
+  // Memperbarui formatNumber untuk menangani null dan undefined
+  const formatNumber = (num?: number | null) => {
+    return num != null ? num.toLocaleString('id-ID') : '-';
   };
 
-  const formatPrice = (num?: number) => {
-    return num !== undefined ? `Rp ${num.toLocaleString('id-ID')}` : '-';
+  // Memperbarui formatPrice untuk menangani null dan undefined
+  const formatPrice = (num?: number | null) => {
+    return num != null ? `Rp ${num.toLocaleString('id-ID')}` : '-';
   };
 
   const renderSortIcon = (columnKey: keyof ProductStatus) => {
