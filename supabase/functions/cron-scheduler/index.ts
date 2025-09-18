@@ -22,10 +22,8 @@ serve(async (req) => {
 
     if (error) throw error;
 
-    console.log(`[cron-scheduler] Users to process: ${JSON.stringify(usersToProcess)}`); // Log tambahan di sini
-
     if (!usersToProcess || usersToProcess.length === 0) {
-      console.log("[cron-scheduler] Penjadwal berjalan, tidak ada pengguna yang perlu diproses.");
+      console.log("Penjadwal berjalan, tidak ada pengguna yang perlu diproses.");
       return new Response(JSON.stringify({ message: "Tidak ada pengguna yang perlu diproses." }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
@@ -33,7 +31,7 @@ serve(async (req) => {
     }
 
     for (const user of usersToProcess) {
-      console.log(`[cron-scheduler] Memperbarui timestamp dan memicu proses untuk pengguna: ${user.user_id}`);
+      console.log(`Memperbarui timestamp dan memicu proses untuk pengguna: ${user.user_id}`);
       
       // 1. Perbarui timestamp segera untuk mencegah pemicuan ulang
       const { error: updateError } = await supabaseAdmin
@@ -42,7 +40,7 @@ serve(async (req) => {
         .eq('user_id', user.user_id);
 
       if (updateError) {
-        console.error(`[cron-scheduler] Gagal memperbarui timestamp untuk pengguna ${user.user_id}:`, updateError);
+        console.error(`Gagal memperbarui timestamp untuk pengguna ${user.user_id}:`, updateError);
         continue; // Lanjut ke pengguna berikutnya
       }
 
@@ -53,12 +51,12 @@ serve(async (req) => {
         });
         
         if (invokeError) {
-          console.error(`[cron-scheduler] Error memanggil process-products untuk pengguna ${user.user_id}:`, invokeError);
+          console.error(`Error memanggil process-products untuk pengguna ${user.user_id}:`, invokeError);
         } else {
-          console.log(`[cron-scheduler] Berhasil memanggil process-products untuk pengguna ${user.user_id}.`);
+          console.log(`Berhasil memanggil process-products untuk pengguna ${user.user_id}.`);
         }
       } catch (invokeCatchError) {
-        console.error(`[cron-scheduler] Pengecualian saat memanggil process-products untuk pengguna ${user.user_id}:`, invokeCatchError);
+        console.error(`Pengecualian saat memanggil process-products untuk pengguna ${user.user_id}:`, invokeCatchError);
       }
     }
 
@@ -68,7 +66,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error("[cron-scheduler] Error pada penjadwal:", error);
+    console.error("Error pada penjadwal:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,

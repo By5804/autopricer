@@ -12,18 +12,16 @@ import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { NextRunCountdown } from '@/components/NextRunCountdown'; // Import the new component
 
 export const Products = () => {
   const { 
     products, 
     loading: userDataLoading, 
     logs,
-    config, // Get config from useUserData
     saveProduct, 
     deleteProduct, 
     batchUpdateProductStatus,
-    processSingleProduct, 
+    processSingleProduct, // Import the new function
   } = useUserData();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
@@ -196,7 +194,7 @@ export const Products = () => {
                             onSort={handleSort} 
                             sortConfig={sortConfig} 
                             onActiveChange={handleActiveChange}
-                            onRetry={processSingleProduct} 
+                            onRetry={processSingleProduct} // Pass the new function here
                           />
                         </AccordionContent>
                       </AccordionItem>
@@ -220,14 +218,6 @@ export const Products = () => {
         />
       </Dialog>
 
-      {config && (
-        <NextRunCountdown 
-          lastRunAt={config.cron_last_run_at} 
-          intervalMinutes={config.cron_interval_minutes} 
-          isCronActive={config.is_cron_active} 
-        />
-      )}
-
       {logs.length > 0 && (
         <Card>
           <CardHeader>
@@ -235,9 +225,9 @@ export const Products = () => {
             <CardDescription>Latest price checking results</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
+            <div className="bg-muted p-4 rounded-md max-h-64 overflow-y-auto">
               {logs.map((log, index) => (
-                <div key={index} className="text-sm font-mono py-0.5 border-b border-border/50 last:border-b-0">
+                <div key={index} className="text-sm font-mono py-1 border-b border-border/50 last:border-b-0">
                   {log}
                 </div>
               ))}
