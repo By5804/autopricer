@@ -3,12 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
+import { Dialog } from '@/components/ui/dialog';
 import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
-import { Upload, Save, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { Save, ChevronsDown, ChevronsUp } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
@@ -25,9 +24,7 @@ export const Products = () => {
   } = useUserData();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [jsonInput, setJsonInput] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<number, boolean>>(new Map());
@@ -78,39 +75,28 @@ export const Products = () => {
     setEditingProduct(null);
   };
 
+  const handleImportSubmit = (productsToImport: Omit<Product, 'isActive'>[]) => {
+    if (productsToImport.length === 0) {
+      showError("No products found in the provided JSON.");
+      return;
+    }
+    
+    const importPromises = productsToImport.map(product => saveProduct(product));
+    
+    Promise.all(importPromises).then(() => {
+      showSuccess(`${productsToImport.length} products imported successfully.`);
+      setIsFormDialogOpen(false);
+    }).catch(() => {
+      showError("An error occurred while importing products.");
+    });
+  };
+
   const handleSort = (key: keyof ProductStatus) => {
     let direction: 'ascending' | 'descending' = 'ascending';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
       direction = 'descending';
     }
     setSortConfig({ key, direction });
-  };
-
-  const handleJsonImportSubmit = () => {
-    try {
-      const data = JSON.parse(jsonInput);
-      if (data.data && Array.isArray(data.data)) {
-        data.data.forEach((item: any) => {
-          const product: Omit<Product, 'isActive'> = {
-            name: item.name,
-            category: item.category_name,
-            product_id: item.id,
-            minPrice: item.min_price || 0,
-            maxPrice: item.max_price || 0,
-            game_id: item.game_id,
-            item_type_id: item.item_type_id,
-            item_info_group_id: item.item_info_group_id,
-            item_info_id: item.item_info_id,
-          };
-          saveProduct(product);
-        });
-        setIsImportDialogOpen(false);
-        setJsonInput('');
-      }
-    } catch (error) {
-      console.error('Error parsing JSON:', error);
-      alert('Invalid JSON format');
-    }
   };
 
   const filteredProducts = showActiveOnly
@@ -160,28 +146,6 @@ export const Products = () => {
               </Button>
             )}
             <LogicExplanationDialog />
-            <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">
-                  <Upload className="mr-2 h-4 w-4" /> Import Products
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Import Products from JSON</DialogTitle>
-                  <DialogDescription>Paste the JSON response from the Itemku product list API here.</DialogDescription>
-                </DialogHeader>
-                <Textarea 
-                  value={jsonInput} 
-                  onChange={(e) => setJsonInput(e.target.value)} 
-                  placeholder="Paste your JSON here..." 
-                  className="h-64" 
-                />
-                <DialogFooter>
-                  <Button onClick={handleJsonImportSubmit}>Import</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
             <Button onClick={() => { setEditingProduct(null); setIsFormDialogOpen(true); }}>
               Add Product
             </Button>
@@ -275,6 +239,7 @@ export const Products = () => {
       <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
         <ProductForm 
           onSubmit={handleFormSubmit} 
+          onImport={handleImportSubmit}
           productToEdit={editingProduct}
         />
       </Dialog>
