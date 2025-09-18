@@ -55,20 +55,6 @@ async function processUserProducts(supabaseAdmin, config) {
     console.log(`[process-products] Processing product: ${product.name} (ID: ${product.product_id})`);
     let resultPayload;
     const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
-
-    let myPrice = undefined; // Initialize to undefined
-    let myStock = undefined; // Initialize to undefined
-    let mySoldCount = undefined; // Initialize to undefined
-    let competitorPrice = undefined; // Initialize to undefined
-    let competitorStoreName = undefined; // Initialize to undefined
-    let competitorStock = undefined; // Initialize to undefined
-    let competitorSoldCount = undefined; // Initialize to undefined
-    let newPrice = null;
-    let potentialNewPrice = null;
-    let message = 'logic.waiting'; // Default message
-    let messageParams = {};
-    let status: 'idle' | 'loading' | 'success' | 'error' | 'updated' = 'idle';
-
     try {
       const scrapeUrl = "https://api-gateway.itemku.com/v1/product";
       const scrapeParams = {
@@ -102,90 +88,96 @@ async function processUserProducts(supabaseAdmin, config) {
       console.log(`[process-products] Competitor list length for ${product.name}: ${competitorList?.length || 0}`);
 
       if (!Array.isArray(competitorList) || competitorList.length === 0) {
-        message = 'logic.noCompetitor';
-        status = 'error';
+        resultPayload = { ...product, status: 'error', message: 'logic.noCompetitor' };
+        results.push(resultPayload);
         console.log(`[process-products] No competitor found for ${product.name}.`);
-      } else {
-        const myProductIndex = competitorList.findIndex(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
-        console.log(`[process-products] My product index for ${product.name}: ${myProductIndex}`);
-
-        // Always try to get P1 competitor data if list is not empty
-        const p1 = competitorList[0];
-        if (p1) {
-            competitorPrice = p1.price;
-            competitorStoreName = p1.seller?.shop_name;
-            competitorStock = p1.stock;
-            competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
-        }
-
-        if (myProductIndex === -1) {
-          message = 'logic.outOfStock';
-          status = 'error';
-          console.log(`[process-products] My product not in top 10 for ${product.name}.`);
-          // My product data (myPrice, myStock, mySoldCount) cannot be determined from this top 10 scrape.
-          // It will remain undefined.
-        } else {
-          const myProductData = competitorList[myProductIndex];
-          myPrice = myProductData.price;
-          myStock = myProductData.stock;
-          mySoldCount = myProductData.order_record?.successful_order_count ?? myProductData.sold_count ?? 0;
-          status = 'success'; // Default status if in top 10
-
-          if (myProductIndex === 0) {
-              const p2 = competitorList[1];
-              if (!p2) { // Only seller
-                  if (myProductData.price < product.maxPrice) {
-                      potentialNewPrice = product.maxPrice;
-                      message = 'logic.onlySellerSetMax';
-                  } else {
-                      message = 'logic.onlySellerAtMax';
-                  }
-              } else { // Cheapest, but there's a P2
-                  const priceDiff = p2.price - myProductData.price;
-                  if (priceDiff > (undercutValue + 90)) { // Significant gap, maximize profit
-                      let tempPrice = roundPrice(p2.price - undercutValue);
-                      tempPrice = Math.min(tempPrice, product.maxPrice);
-                      if (tempPrice !== myProductData.price) {
-                          potentialNewPrice = tempPrice;
-                          message = 'logic.maximizeProfit';
-                      } else {
-                          message = 'logic.cheapestOptimal';
-                      }
-                  } else { // Optimal price, no need to change
-                      message = 'logic.cheapestOptimal';
-                  }
-              }
-          } else { // Not the cheapest
-              const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
-              if (target) { // Found a non-whitelisted target above
-                  potentialNewPrice = roundPrice(target.price - undercutValue);
-                  message = 'logic.undercutting';
-                  messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
-                  // Update competitor data to target if different from P1
-                  if (target !== p1) {
-                      competitorPrice = target.price;
-                      competitorStoreName = target.seller?.shop_name;
-                      competitorStock = target.stock;
-                      competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count ?? 0;
-                  }
-              } else { // No non-whitelisted target above (all whitelisted or too cheap)
-                  message = 'logic.holdPrice'; // Default to hold price
-              }
-          }
-        }
+        continue;
       }
 
-      if (potentialNewPrice !== null && potentialNewPrice !== myPrice) { // Compare with myPrice, not myProductData.price
+      const myProductIndex = competitorList.findIndex(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
+      console.log(`[process-products] My product index for ${product.name}: ${myProductIndex}`);
+
+      if (myProductIndex === -1) {
+        resultPayload = { ...product, status: 'error', message: 'logic.outOfStock' };
+        results.push(resultPayload);
+        console.log(`[process-products] My product not in top 10 for ${product.name}.`);
+        continue;
+      }
+      
+      const myProductData = competitorList[myProductIndex];
+      let newPrice = null;
+      let potentialNewPrice = null;
+      let message = '';
+      let messageParams = {};
+      
+      const myPrice = myProductData.price;
+      const myStock = myProductData.stock;
+      // Mengambil mySoldCount dari order_record.successful_order_count atau sold_count, default ke 0
+      const mySoldCount = myProductData.order_record?.successful_order_count ?? myProductData.sold_count ?? 0;
+      let competitorPrice, competitorStoreName, competitorStock, competitorSoldCount;
+
+      if (myProductIndex === 0) {
+          const p2 = competitorList[1];
+          if (p2) {
+              competitorPrice = p2.price;
+              competitorStoreName = p2.seller?.shop_name;
+              competitorStock = p2.stock;
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count, default ke 0
+              competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
+          }
+          if (!p2) {
+              if (myProductData.price < product.maxPrice) {
+                  potentialNewPrice = product.maxPrice;
+                  message = 'logic.onlySellerSetMax';
+              } else {
+                  message = 'logic.onlySellerAtMax';
+              }
+          } else {
+              const priceDiff = p2.price - myProductData.price;
+              if (priceDiff > (undercutValue + 90)) {
+                  let tempPrice = roundPrice(p2.price - undercutValue);
+                  tempPrice = Math.min(tempPrice, product.maxPrice);
+                  if (tempPrice !== myProductData.price) {
+                      potentialNewPrice = tempPrice;
+                      message = 'logic.maximizeProfit';
+                  } else {
+                      message = 'logic.cheapestOptimal';
+                  }
+              } else {
+                  message = 'logic.cheapestOptimal';
+              }
+          }
+      } else {
+          const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+          if (target) {
+              potentialNewPrice = roundPrice(target.price - undercutValue);
+              message = 'logic.undercutting';
+              messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+              competitorPrice = target.price;
+              competitorStoreName = target.seller?.shop_name;
+              competitorStock = target.stock;
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count, default ke 0
+              competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count ?? 0;
+          } else {
+              const p1 = competitorList[0];
+              competitorPrice = p1.price;
+              competitorStoreName = p1.seller?.shop_name;
+              competitorStock = p1.stock;
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count, default ke 0
+              competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
+              message = 'logic.holdPrice';
+          }
+      }
+
+      if (potentialNewPrice !== null && potentialNewPrice !== myProductData.price) {
           if (potentialNewPrice < product.minPrice) {
               message = 'logic.violatesMinPrice';
               messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
               potentialNewPrice = null;
-              status = 'error'; // Set status to error if price violates min
           } else if (potentialNewPrice > product.maxPrice) {
               message = 'logic.violatesMaxPrice';
               messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
               potentialNewPrice = null;
-              status = 'error'; // Set status to error if price violates max
           } else {
               newPrice = potentialNewPrice;
           }
@@ -204,7 +196,7 @@ async function processUserProducts(supabaseAdmin, config) {
         newPrice, 
         message, 
         messageParams, 
-        status: newPrice !== null ? 'updated' : status // If newPrice is set, status is 'updated', otherwise use calculated status
+        status: 'success' 
       };
 
       if (newPrice !== null) {
@@ -244,5 +236,43 @@ async function processUserProducts(supabaseAdmin, config) {
     if (logError) console.error(`[process-products] Error inserting logs for user ${user_id}:`, logError);
     else console.log(`[process-products] Successfully inserted ${logsToInsert.length} logs for user ${user_id}.`);
   }
-  return results; // Return results for potential further use, though not used by cron-scheduler
 }
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
+    const { user_id } = await req.json();
+    console.log(`[process-products] Received request for user_id: ${user_id}`);
+
+    if (!user_id) {
+      return new Response(JSON.stringify({ error: 'user_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
+
+    if (configError || !config) {
+      console.error(`[process-products] Configuration not found for user ${user_id}:`, configError);
+      return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    console.log(`[process-products] Configuration found for user ${user_id}.`);
+
+    await processUserProducts(supabaseAdmin, config);
+
+    console.log(`[process-products] Process completed for user ${user_id}`);
+    return new Response(JSON.stringify({ message: `Proses selesai untuk pengguna ${user_id}` }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
+    });
+
+  } catch (error) {
+    console.error('[process-products] Error in main serve block:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500,
+    });
+  }
+});
