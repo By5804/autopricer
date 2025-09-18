@@ -7,7 +7,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
-import { Save, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { ChevronsDown, ChevronsUp } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
@@ -27,34 +27,14 @@ export const Products = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<Map<number, boolean>>(new Map());
   const [openCategories, setOpenCategories] = useState<string[]>([]);
 
-  const handleActiveChange = (productId: number, isActive: boolean) => {
-    setPendingChanges(prev => {
-      const newChanges = new Map(prev);
-      const originalProduct = products.find(p => p.product_id === productId);
-      if (originalProduct && originalProduct.isActive !== isActive) {
-        newChanges.set(productId, isActive);
-      } else {
-        newChanges.delete(productId);
-      }
-      return newChanges;
-    });
-  };
-
-  const handleSaveChanges = async () => {
-    if (pendingChanges.size === 0) return;
-    const updates = Array.from(pendingChanges.entries()).map(([productId, isActive]) => ({
-      productId,
-      isActive,
-    }));
-    const success = await batchUpdateProductStatus(updates);
+  const handleActiveChange = async (productId: number, isActive: boolean) => {
+    const success = await batchUpdateProductStatus([{ productId, isActive }]);
     if (success) {
-      showSuccess('Product statuses updated successfully.');
-      setPendingChanges(new Map());
+      showSuccess(`Product status updated to ${isActive ? 'active' : 'inactive'}.`);
     } else {
-      showError('Failed to update some product statuses. Please check the browser console for details.');
+      showError('Failed to update product status. Please check the browser console for details.');
     }
   };
 
@@ -100,7 +80,7 @@ export const Products = () => {
   };
 
   const filteredProducts = showActiveOnly
-    ? products.filter(p => pendingChanges.get(p.product_id) ?? p.isActive)
+    ? products.filter(p => p.isActive)
     : products;
 
   const groupedProducts = filteredProducts.reduce<Record<string, ProductStatus[]>>((acc, product) => {
@@ -139,12 +119,6 @@ export const Products = () => {
             <CardDescription>Add, edit, and manage products for price checking.</CardDescription>
           </div>
           <div className="flex items-center space-x-2">
-            {pendingChanges.size > 0 && (
-              <Button onClick={handleSaveChanges}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes ({pendingChanges.size})
-              </Button>
-            )}
             <LogicExplanationDialog />
             <Button onClick={() => { setEditingProduct(null); setIsFormDialogOpen(true); }}>
               Add Product
@@ -214,7 +188,6 @@ export const Products = () => {
                         <AccordionContent>
                           <ProductTable 
                             products={sortedProducts} 
-                            pendingChanges={pendingChanges}
                             onEdit={handleEditProduct} 
                             onDelete={handleDeleteProduct} 
                             onSort={handleSort} 

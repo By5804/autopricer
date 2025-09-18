@@ -9,7 +9,6 @@ import { formatMessage } from "@/utils/translations";
 
 interface ProductTableProps {
   products: ProductStatus[];
-  pendingChanges: Map<number, boolean>;
   onEdit: (product: Product) => void;
   onDelete: (productId: number) => void;
   onSort: (key: keyof ProductStatus) => void;
@@ -17,7 +16,7 @@ interface ProductTableProps {
   onActiveChange: (productId: number, isActive: boolean) => void;
 }
 
-export function ProductTable({ products, pendingChanges, onEdit, onDelete, onSort, sortConfig, onActiveChange }: ProductTableProps) {
+export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, onActiveChange }: ProductTableProps) {
   const getStatusVariant = (status: ProductStatus['status']) => {
     switch (status) {
       case 'success':
@@ -48,10 +47,6 @@ export function ProductTable({ products, pendingChanges, onEdit, onDelete, onSor
       return <ArrowUp className="inline-block ml-1 h-4 w-4" />;
     }
     return <ArrowDown className="inline-block ml-1 h-4 w-4" />;
-  };
-
-  const getCurrentActiveState = (product: ProductStatus) => {
-    return pendingChanges.get(product.product_id) ?? product.isActive;
   };
 
   return (
@@ -89,16 +84,14 @@ export function ProductTable({ products, pendingChanges, onEdit, onDelete, onSor
       </TableHeader>
       <TableBody>
         {products.map((product) => {
-          const currentActiveState = getCurrentActiveState(product);
-          
           return (
             <TableRow 
               key={product.product_id}
-              className={cn(!currentActiveState && "text-muted-foreground opacity-70")}
+              className={cn(!product.isActive && "text-muted-foreground opacity-70")}
             >
               <TableCell>
                 <Switch
-                  checked={currentActiveState}
+                  checked={product.isActive}
                   onCheckedChange={(checked) => onActiveChange(product.product_id, checked)}
                   aria-label="Toggle product active state"
                 />
