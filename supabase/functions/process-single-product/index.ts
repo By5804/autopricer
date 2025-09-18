@@ -42,6 +42,11 @@ async function processProductLogic(supabaseAdmin, config, product) {
       : [];
 
   try {
+    // Validate API keys
+    if (!api_key || !secret_key) {
+      throw new Error('API Key or Secret Key is missing in user configuration.');
+    }
+
     const scrapeUrl = "https://api-gateway.itemku.com/v1/product";
     const scrapeParams = {
         is_include_game: '1', is_include_item_type: '1', is_include_item_info_group: '1',
@@ -66,10 +71,20 @@ async function processProductLogic(supabaseAdmin, config, product) {
     const competitorResponse = await fetchWithTimeout(url.toString(), {}, 12000); // 12 seconds timeout
     console.log(`[process-single-product] ${product.name} - After scrape fetch. Status: ${competitorResponse.status}. Time: ${Date.now() - startTime}ms`);
     if (!competitorResponse.ok) {
-      const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape gagal dengan status ${competitorResponse.status}` }));
+      let errorData = { message: `Scrape gagal dengan status ${competitorResponse.status}` };
+      try {
+        errorData = await competitorResponse.json();
+      } catch (jsonError) {
+        console.warn(`[process-single-product] ${product.name} - Gagal mengurai respons error scrape sebagai JSON: ${jsonError.message}`);
+      }
       throw new Error(errorData.message);
     }
-    const competitorData = await competitorResponse.json();
+    let competitorData;
+    try {
+      competitorData = await competitorResponse.json();
+    } catch (jsonError) {
+      throw new Error(`Gagal mengurai respons scrape sebagai JSON: ${jsonError.message}`);
+    }
     // Ensure competitorList is an array
     const competitorList = competitorData?.data?.data || [];
     console.log(`[process-single-product] ${product.name} - After parsing scrape data. Competitors: ${competitorList?.length || 0}. Time: ${Date.now() - startTime}ms`);
@@ -193,8 +208,13 @@ async function processProductLogic(supabaseAdmin, config, product) {
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
           body: JSON.stringify(updatePayload)
       }, 12000); // 12 seconds timeout
-      const updateData = await updateResponse.json().catch(() => ({ success: false, message: `Gagal mengurai respons update dengan status ${updateResponse.status}` }));
-      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`); // FIX: Date.Now() -> Date.now()
+      let updateData;
+      try {
+        updateData = await updateResponse.json();
+      } catch (jsonError) {
+        throw new Error(`Gagal mengurai respons update sebagai JSON: ${jsonError.message}`);
+      }
+      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`);
 
       if (updateResponse.ok && updateData.success) {
           resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
