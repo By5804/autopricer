@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
-import { Upload, Save } from 'lucide-react';
+import { Upload, Save, ChevronsDown, ChevronsUp } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
@@ -30,6 +30,7 @@ export const Products = () => {
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
   const [view, setView] = useState<'all' | 'active'>('all');
   const [pendingChanges, setPendingChanges] = useState<Map<number, boolean>>(new Map());
+  const [openCategories, setOpenCategories] = useState<string[]>([]);
 
   const handleActiveChange = (productId: number, isActive: boolean) => {
     setPendingChanges(prev => {
@@ -111,14 +112,6 @@ export const Products = () => {
     }
   };
 
-  if (userDataLoading) {
-    return (
-      <div className="p-8 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
   const filteredProducts = view === 'active'
     ? products.filter(p => pendingChanges.get(p.product_id) ?? p.isActive)
     : products;
@@ -133,6 +126,22 @@ export const Products = () => {
   }, {});
 
   const sortedCategories = Object.keys(groupedProducts).sort((a, b) => a.localeCompare(b));
+
+  const handleExpandAll = () => {
+    setOpenCategories(sortedCategories);
+  };
+
+  const handleCollapseAll = () => {
+    setOpenCategories([]);
+  };
+
+  if (userDataLoading) {
+    return (
+      <div className="p-8 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-8">
@@ -178,17 +187,34 @@ export const Products = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="all" value={view} onValueChange={(value) => setView(value as 'all' | 'active')} className="mb-4">
-            <TabsList>
-              <TabsTrigger value="all">All Products</TabsTrigger>
-              <TabsTrigger value="active">Active Products</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex justify-between items-center mb-4">
+            <Tabs defaultValue="all" value={view} onValueChange={(value) => setView(value as 'all' | 'active')}>
+              <TabsList>
+                <TabsTrigger value="all">All Products</TabsTrigger>
+                <TabsTrigger value="active">Active Products</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="flex items-center space-x-2">
+              <Button variant="outline" size="sm" onClick={handleExpandAll}>
+                <ChevronsUp className="mr-2 h-4 w-4" />
+                Expand All
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleCollapseAll}>
+                <ChevronsDown className="mr-2 h-4 w-4" />
+                Collapse All
+              </Button>
+            </div>
+          </div>
           
           <div className="space-y-2">
             {products.length > 0 ? (
               sortedCategories.length > 0 ? (
-                <Accordion type="multiple" className="w-full">
+                <Accordion 
+                  type="multiple" 
+                  className="w-full"
+                  value={openCategories}
+                  onValueChange={setOpenCategories}
+                >
                   {sortedCategories.map(category => {
                     const categoryProducts = groupedProducts[category];
                     const sortedProducts = [...categoryProducts].sort((a, b) => {
