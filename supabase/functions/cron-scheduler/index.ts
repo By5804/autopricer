@@ -44,23 +44,35 @@ serve(async (req) => {
         continue; // Lanjut ke pengguna berikutnya
       }
 
-      // 2. Panggil fungsi pemrosesan
-      try {
-        const { error: invokeError } = await supabaseAdmin.functions.invoke('process-products', {
-          body: { user_id: user.user_id },
+      // 2. Ambil semua produk aktif untuk pengguna ini
+      const { data: userProducts, error: productsError } = await supabaseAdmin
+        .from('user_products')
+        .select('product_id')
+        .eq('user_id', user.user_id)
+        .eq('is_active', true);
+
+      if (productsError) {
+        console.error(`Gagal mengambil produk untuk pengguna ${user.user_id}:`, productsError);
+        continue; // Lanjut ke pengguna berikutnya
+      }
+
+      if (userProducts && userProducts.length > 0) {
+        console.log(`Memicu pemrosesan untuk ${userProducts.length} produk pengguna ${user.user_id}.`);
+        // 3. Panggil fungsi process-single-product untuk setiap produk secara asinkron
+        userProducts.forEach(product => {
+          // Tidak perlu await di sini agar cron-scheduler bisa selesai dengan cepat
+          supabaseAdmin.functions.invoke('process-single-product', {
+            body: { user_id: user.user_id, product_id: product.product_id },
+          }).catch(invokeError => {
+            console.error(`Error memanggil process-single-product untuk produk ${product.product_id} pengguna ${user.user_id}:`, invokeError);
+          });
         });
-        
-        if (invokeError) {
-          console.error(`Error memanggil process-products untuk pengguna ${user.user_id}:`, invokeError);
-        } else {
-          console.log(`Berhasil memanggil process-products untuk pengguna ${user.user_id}.`);
-        }
-      } catch (invokeCatchError) {
-        console.error(`Pengecualian saat memanggil process-products untuk pengguna ${user.user_id}:`, invokeCatchError);
+      } else {
+        console.log(`Tidak ada produk aktif untuk pengguna ${user.user_id}.`);
       }
     }
 
-    return new Response(JSON.stringify({ message: `Memicu pemrosesan untuk ${usersToProcess.length} pengguna.` }), {
+    return new Response(JSON.stringify({ message: `Memicu pemrosesan untuk pengguna yang jatuh tempo.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
