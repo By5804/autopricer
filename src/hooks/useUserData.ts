@@ -96,11 +96,11 @@ const useUserData = () => {
     }
 
     let isMounted = true;
+    let configPollingInterval: ReturnType<typeof setInterval> | undefined;
 
     const loadUserData = async () => {
       try {
-        setLoading(true);
-        
+        // Fetch config
         const { data: configData, error: configError } = await supabase
           .from('user_configurations')
           .select('*')
@@ -115,6 +115,7 @@ const useUserData = () => {
           setConfig(configData);
         }
 
+        // Fetch products
         const { data: productsData, error: productsError } = await supabase
           .from('user_products')
           .select('*')
@@ -159,6 +160,13 @@ const useUserData = () => {
 
     loadUserData();
 
+    // Start polling for config updates (e.g., cron_last_run_at)
+    configPollingInterval = setInterval(() => {
+      if (isMounted) {
+        loadUserData(); // Re-fetch all data, including config
+      }
+    }, 30000); // Poll every 30 seconds
+
     const channel = supabase
       .channel(`product-updates-${user.id}`)
       .on(
@@ -183,6 +191,9 @@ const useUserData = () => {
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
+      if (configPollingInterval) {
+        clearInterval(configPollingInterval);
+      }
     };
   }, [user, updateProductsWithResults, addLog, loadExistingLogs]);
 
