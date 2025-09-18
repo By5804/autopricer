@@ -53,7 +53,7 @@ const useUserData = () => {
         .from('product_logs')
         .select('log_data, created_at')
         .eq('user_id', userId)
-        .gte('created_at', oneHourAgo)
+        .gte('created_at', oneHourHourAgo)
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -126,7 +126,6 @@ const useUserData = () => {
           console.error('Error loading products:', productsError);
         } else {
           const formattedProducts: ProductStatus[] = (productsData || []).map(p => {
-            console.log(`[useUserData] Product ${p.product_id} loaded from DB: is_active = ${p.is_active}`);
             return {
               product_id: p.product_id,
               name: p.name,
@@ -283,10 +282,8 @@ const useUserData = () => {
       return false;
     }
     try {
-      console.log(`[useUserData] Attempting to batch update ${updates.length} products for user ${user.id}`);
-      const updatePromises = updates.map(({ productId, isActive }) => {
-        console.log(`[useUserData] Sending update for product ${productId}: is_active = ${isActive}`); // Log sebelum update
-        return supabase
+      const updatePromises = updates.map(({ productId, isActive }) =>
+        supabase
           .from('user_products')
           .update({
             is_active: isActive,
@@ -297,12 +294,10 @@ const useUserData = () => {
           .then(response => {
             if (response.error) {
               console.error(`[useUserData] Supabase update error for product ${productId}:`, response.error);
-            } else {
-              console.log(`[useUserData] Successfully updated product ${productId} to isActive: ${isActive}`);
             }
             return response;
-          });
-      });
+          })
+      );
 
       const results = await Promise.all(updatePromises);
 
@@ -319,10 +314,8 @@ const useUserData = () => {
             ? { ...p, isActive: updatesMap.get(p.product_id)! }
             : p
         );
-        console.log('[useUserData] Products state after successful batch update (IDs and isActive):', newProducts.map(p => ({ id: p.product_id, isActive: p.isActive })));
         return newProducts;
       });
-      console.log('[useUserData] All batch updates completed successfully and local state updated.');
       return true;
     } catch (error) {
       console.error('[useUserData] Error in batchUpdateProductStatus:', error);
