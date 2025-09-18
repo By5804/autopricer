@@ -17,56 +17,56 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Call the RPC function to get only the users that are due
+    // Panggil fungsi RPC untuk mendapatkan pengguna yang sudah jatuh tempo
     const { data: usersToProcess, error } = await supabaseAdmin.rpc('get_due_users');
 
     if (error) throw error;
 
     if (!usersToProcess || usersToProcess.length === 0) {
-      console.log("Scheduler ran, no users due for processing.");
-      return new Response(JSON.stringify({ message: "No users due for processing." }), {
+      console.log("Penjadwal berjalan, tidak ada pengguna yang perlu diproses.");
+      return new Response(JSON.stringify({ message: "Tidak ada pengguna yang perlu diproses." }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
     }
 
     for (const user of usersToProcess) {
-      console.log(`Updating timestamp and triggering process for user: ${user.user_id}`);
+      console.log(`Memperbarui timestamp dan memicu proses untuk pengguna: ${user.user_id}`);
       
-      // 1. Update the timestamp immediately to prevent re-triggering
+      // 1. Perbarui timestamp segera untuk mencegah pemicuan ulang
       const { error: updateError } = await supabaseAdmin
         .from('user_configurations')
         .update({ cron_last_run_at: new Date().toISOString() })
         .eq('user_id', user.user_id);
 
       if (updateError) {
-        console.error(`Failed to update timestamp for user ${user.user_id}:`, updateError);
-        continue; // Skip to the next user
+        console.error(`Gagal memperbarui timestamp untuk pengguna ${user.user_id}:`, updateError);
+        continue; // Lanjut ke pengguna berikutnya
       }
 
-      // 2. Invoke the processing function
+      // 2. Panggil fungsi pemrosesan
       try {
         const { error: invokeError } = await supabaseAdmin.functions.invoke('process-products', {
           body: { user_id: user.user_id },
         });
         
         if (invokeError) {
-          console.error(`Error invoking process-products for user ${user.user_id}:`, invokeError);
+          console.error(`Error memanggil process-products untuk pengguna ${user.user_id}:`, invokeError);
         } else {
-          console.log(`Successfully invoked process-products for user ${user.user_id}.`);
+          console.log(`Berhasil memanggil process-products untuk pengguna ${user.user_id}.`);
         }
       } catch (invokeCatchError) {
-        console.error(`Exception when invoking process-products for user ${user.user_id}:`, invokeCatchError);
+        console.error(`Pengecualian saat memanggil process-products untuk pengguna ${user.user_id}:`, invokeCatchError);
       }
     }
 
-    return new Response(JSON.stringify({ message: `Triggered processing for ${usersToProcess.length} user(s).` }), {
+    return new Response(JSON.stringify({ message: `Memicu pemrosesan untuk ${usersToProcess.length} pengguna.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
   } catch (error) {
-    console.error("Scheduler error:", error);
+    console.error("Error pada penjadwal:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,

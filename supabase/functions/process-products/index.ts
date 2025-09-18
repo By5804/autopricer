@@ -17,12 +17,12 @@ async function processUserProducts(supabaseAdmin, config) {
     .eq('is_active', true);
 
   if (productsError) {
-    console.error(`Error fetching products for user ${user_id}:`, productsError);
+    console.error(`Error mengambil produk untuk pengguna ${user_id}:`, productsError);
     return [];
   }
 
   if (!products || products.length === 0) {
-    console.log(`No active products to process for user ${user_id}.`);
+    console.log(`Tidak ada produk aktif untuk diproses bagi pengguna ${user_id}.`);
     return [];
   }
   
@@ -45,18 +45,6 @@ async function processUserProducts(supabaseAdmin, config) {
       : [];
 
   const roundPrice = (price) => Math.floor(price / 10) * 10;
-  const isWhitelisted = (competitor, stores) => {
-      if (!competitor) return false;
-      const competitorName = competitor.seller?.shop_name?.toLowerCase() || '';
-      return stores.includes(competitorName);
-  };
-  const isTargetable = (competitor, product, stores, undercut) => {
-      if (!competitor) return false;
-      if (isWhitelisted(competitor, stores)) return false;
-      const potentialNewPrice = roundPrice(competitor.price - undercut);
-      if (potentialNewPrice < product.minPrice) return false;
-      return true;
-  };
   
   const results = [];
 
@@ -86,7 +74,7 @@ async function processUserProducts(supabaseAdmin, config) {
 
       const competitorResponse = await fetch(url.toString());
       if (!competitorResponse.ok) {
-        const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape failed with status ${competitorResponse.status}` }));
+        const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape gagal dengan status ${competitorResponse.status}` }));
         throw new Error(errorData.message);
       }
       const competitorData = await competitorResponse.json();
@@ -107,10 +95,8 @@ async function processUserProducts(supabaseAdmin, config) {
       }
       
       const myProductData = competitorList[myProductIndex];
-      let shouldUpdate = false;
       let newPrice = null;
       let potentialNewPrice = null;
-      let status = 'success';
       let message = '';
       let messageParams = {};
       
@@ -146,15 +132,8 @@ async function processUserProducts(supabaseAdmin, config) {
               }
           }
       } else {
-          const validTargets = [];
-          for (let i = 0; i < myProductIndex; i++) {
-              const competitor = competitorList[i];
-              if (isTargetable(competitor, product, whitelistedStores, undercutValue)) {
-                  validTargets.push(competitor);
-              }
-          }
-          if (validTargets.length > 0) {
-              const target = validTargets[0];
+          const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+          if (target) {
               potentialNewPrice = roundPrice(target.price - undercutValue);
               message = 'logic.undercutting';
               messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
@@ -172,54 +151,37 @@ async function processUserProducts(supabaseAdmin, config) {
           if (potentialNewPrice < product.minPrice) {
               message = 'logic.violatesMinPrice';
               messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
+              potentialNewPrice = null;
           } else if (potentialNewPrice > product.maxPrice) {
               message = 'logic.violatesMaxPrice';
               messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
+              potentialNewPrice = null;
           } else {
               newPrice = potentialNewPrice;
-              shouldUpdate = true;
           }
       }
 
-      resultPayload = { ...product, myPrice, competitorPrice, competitorStoreName, newPrice, messageParams };
+      resultPayload = { ...product, myPrice, competitorPrice, competitorStoreName, newPrice, message, messageParams, status: 'success' };
 
-      if (shouldUpdate && newPrice !== null) {
-        const key = await crypto.subtle.importKey(
-            "raw",
-            new TextEncoder().encode(secret_key),
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign"]
-        );
+      if (newPrice !== null) {
+        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
         const nonce = Math.floor(Date.now() / 1000).toString();
         const updatePayload = { product_id: product.product_id, new_price: newPrice };
         const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
-        
-        const token = await create(
-            { alg: "HS256", "X-Api-Key": api_key, Nonce: nonce },
-            updatePayload,
-            key
-        );
+        const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, updatePayload, key);
 
-        try {
-          const updateResponse = await fetch(updateUrl, {
+        const updateResponse = await fetch(updateUrl, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
             body: JSON.stringify(updatePayload)
-          });
+        });
+        const updateData = await updateResponse.json();
 
-          const updateData = await updateResponse.json();
-
-          if (updateResponse.ok && updateData.success) {
+        if (updateResponse.ok && updateData.success) {
             resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
-          } else {
-            resultPayload = { ...resultPayload, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: updateData?.message || `Update failed with status ${updateResponse.status}` } };
-          }
-        } catch (updateError) {
-          resultPayload = { ...resultPayload, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: updateError.message } };
+        } else {
+            resultPayload = { ...resultPayload, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: updateData?.message || `Update gagal dengan status ${updateResponse.status}` } };
         }
-      } else {
-        resultPayload = { ...resultPayload, status, message };
       }
     } catch (error) {
       resultPayload = { ...product, status: 'error', message: 'logic.scrapeFail', messageParams: { errorMessage: error.message } };
@@ -229,18 +191,10 @@ async function processUserProducts(supabaseAdmin, config) {
   }
   
   if (results.length > 0) {
-    const logsToInsert = results.map(r => ({
-      user_id: user_id,
-      product_id: r.product_id,
-      log_data: r
-    }));
+    const logsToInsert = results.map(r => ({ user_id, product_id: r.product_id, log_data: r }));
     const { error: logError } = await supabaseAdmin.from('product_logs').insert(logsToInsert);
-    if (logError) {
-      console.error(`Error inserting logs for user ${user_id}:`, logError);
-    }
+    if (logError) console.error(`Error memasukkan log untuk pengguna ${user_id}:`, logError);
   }
-
-  return results;
 }
 
 serve(async (req) => {
@@ -249,76 +203,28 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
+    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
+    const { user_id } = await req.json();
 
-    let userIdToProcess;
-    const authHeader = req.headers.get('Authorization');
-    let body;
-
-    try {
-      body = await req.json();
-    } catch (e) {
-      body = {};
+    if (!user_id) {
+      return new Response(JSON.stringify({ error: 'user_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    if (body.user_id) {
-      userIdToProcess = body.user_id;
-    }
-    else if (authHeader) {
-      const supabaseClient = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-        { global: { headers: { Authorization: authHeader } } }
-      );
-      const { data: { user } } = await supabaseClient.auth.getUser();
-      if (!user) {
-        return new Response(JSON.stringify({ error: 'Invalid or expired user token' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      userIdToProcess = user.id;
-    }
-    else {
-      return new Response(JSON.stringify({ error: 'Authentication required' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    if (!userIdToProcess) {
-      return new Response(JSON.stringify({ error: 'Could not determine user to process' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    const { data: config, error: configError } = await supabaseAdmin
-      .from('user_configurations')
-      .select('*')
-      .eq('user_id', userIdToProcess)
-      .single();
+    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
 
     if (configError || !config) {
-      console.error(`Configuration not found for user ${userIdToProcess}:`, configError);
-      return new Response(JSON.stringify({ error: `Configuration not found for user ${userIdToProcess}` }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const results = await processUserProducts(supabaseAdmin, config);
+    await processUserProducts(supabaseAdmin, config);
 
-    return new Response(JSON.stringify(results), {
+    return new Response(JSON.stringify({ message: `Proses selesai untuk pengguna ${user_id}` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
   } catch (error) {
-    console.error('Error in process-products:', error);
+    console.error('Error di process-products:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,

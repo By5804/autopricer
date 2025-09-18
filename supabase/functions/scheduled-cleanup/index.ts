@@ -17,7 +17,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Hapus logs yang lebih dari 1 jam
+    // Hapus log yang lebih tua dari 1 jam
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     
     const { data, error } = await supabaseAdmin
@@ -26,17 +26,17 @@ serve(async (req) => {
       .lt('created_at', oneHourAgo);
 
     if (error) {
-      console.error('Error cleaning old logs:', error);
+      console.error('Error membersihkan log lama:', error);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    console.log(`Cleaned ${data?.length || 0} logs older than 1 hour`);
+    console.log(`Membersihkan ${data?.length || 0} log yang lebih tua dari 1 jam`);
     
     return new Response(JSON.stringify({ 
-      message: `Cleaned ${data?.length || 0} logs older than 1 hour`,
+      message: `Membersihkan ${data?.length || 0} log yang lebih tua dari 1 jam`,
       deletedCount: data?.length || 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -44,7 +44,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Error in scheduled-cleanup:', error);
+    console.error('Error di scheduled-cleanup:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
