@@ -9,6 +9,8 @@ const corsHeaders = {
 
 async function processUserProducts(supabaseAdmin, config) {
   const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
+  console.log(`[process-products] Starting processing for user: ${user_id}`);
+  console.log(`[process-products] User config: ${JSON.stringify(config)}`);
 
   const { data: products, error: productsError } = await supabaseAdmin
     .from('user_products')
@@ -17,14 +19,15 @@ async function processUserProducts(supabaseAdmin, config) {
     .eq('is_active', true);
 
   if (productsError) {
-    console.error(`Error mengambil produk untuk pengguna ${user_id}:`, productsError);
+    console.error(`[process-products] Error fetching products for user ${user_id}:`, productsError);
     return [];
   }
 
   if (!products || products.length === 0) {
-    console.log(`Tidak ada produk aktif untuk diproses bagi pengguna ${user_id}.`);
+    console.log(`[process-products] No active products to process for user ${user_id}.`);
     return [];
   }
+  console.log(`[process-products] Found ${products.length} active products for user ${user_id}.`);
   
   const productList = products.map(p => ({
     name: p.name,
@@ -49,6 +52,7 @@ async function processUserProducts(supabaseAdmin, config) {
   const results = [];
 
   for (const product of productList) {
+    console.log(`[process-products] Processing product: ${product.name} (ID: ${product.product_id})`);
     let resultPayload;
     const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
     try {
@@ -71,26 +75,32 @@ async function processUserProducts(supabaseAdmin, config) {
         Object.entries(scrapeParams).map(([key, value]) => [key, String(value)])
       );
       url.search = new URLSearchParams(stringifiedParams).toString();
+      console.log(`[process-products] Scraping URL: ${url.toString()}`);
 
       const competitorResponse = await fetch(url.toString());
+      console.log(`[process-products] Scrape response status for ${product.name}: ${competitorResponse.status}`);
       if (!competitorResponse.ok) {
         const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape gagal dengan status ${competitorResponse.status}` }));
         throw new Error(errorData.message);
       }
       const competitorData = await competitorResponse.json();
       const competitorList = competitorData.data.data;
+      console.log(`[process-products] Competitor list length for ${product.name}: ${competitorList?.length || 0}`);
 
       if (!Array.isArray(competitorList) || competitorList.length === 0) {
         resultPayload = { ...product, status: 'error', message: 'logic.noCompetitor' };
         results.push(resultPayload);
+        console.log(`[process-products] No competitor found for ${product.name}.`);
         continue;
       }
 
       const myProductIndex = competitorList.findIndex(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
+      console.log(`[process-products] My product index for ${product.name}: ${myProductIndex}`);
 
       if (myProductIndex === -1) {
         resultPayload = { ...product, status: 'error', message: 'logic.outOfStock' };
         results.push(resultPayload);
+        console.log(`[process-products] My product not in top 10 for ${product.name}.`);
         continue;
       }
       
@@ -168,6 +178,7 @@ async function processUserProducts(supabaseAdmin, config) {
               newPrice = potentialNewPrice;
           }
       }
+      console.log(`[process-products] Calculated new price for ${product.name}: ${newPrice}, message: ${message}`);
 
       resultPayload = { 
         ...product, 
@@ -185,6 +196,7 @@ async function processUserProducts(supabaseAdmin, config) {
       };
 
       if (newPrice !== null) {
+        console.log(`[process-products] Attempting to update price for ${product.name} to ${newPrice}`);
         const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-265" }, false, ["sign"]);
         const nonce = Math.floor(Date.now() / 1000).toString();
         const updatePayload = { product_id: product.product_id, new_price: newPrice };
@@ -197,6 +209,7 @@ async function processUserProducts(supabaseAdmin, config) {
             body: JSON.stringify(updatePayload)
         });
         const updateData = await updateResponse.json();
+        console.log(`[process-products] Price update response for ${product.name}: OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}`);
 
         if (updateResponse.ok && updateData.success) {
             resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
@@ -205,16 +218,19 @@ async function processUserProducts(supabaseAdmin, config) {
         }
       }
     } catch (error) {
+      console.error(`[process-products] Error processing product ${product.name} (ID: ${product.product_id}):`, error);
       resultPayload = { ...product, status: 'error', message: 'logic.scrapeFail', messageParams: { errorMessage: error.message } };
     } finally {
       results.push(resultPayload);
+      console.log(`[process-products] Final result payload for ${product.name}: ${JSON.stringify(resultPayload)}`);
     }
   }
   
   if (results.length > 0) {
     const logsToInsert = results.map(r => ({ user_id, product_id: r.product_id, log_data: r }));
     const { error: logError } = await supabaseAdmin.from('product_logs').insert(logsToInsert);
-    if (logError) console.error(`Error memasukkan log untuk pengguna ${user_id}:`, logError);
+    if (logError) console.error(`[process-products] Error inserting logs for user ${user_id}:`, logError);
+    else console.log(`[process-products] Successfully inserted ${logsToInsert.length} logs for user ${user_id}.`);
   }
 }
 
@@ -226,6 +242,7 @@ serve(async (req) => {
   try {
     const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
     const { user_id } = await req.json();
+    console.log(`[process-products] Received request for user_id: ${user_id}`);
 
     if (!user_id) {
       return new Response(JSON.stringify({ error: 'user_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -234,18 +251,21 @@ serve(async (req) => {
     const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
 
     if (configError || !config) {
+      console.error(`[process-products] Configuration not found for user ${user_id}:`, configError);
       return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
+    console.log(`[process-products] Configuration found for user ${user_id}.`);
 
     await processUserProducts(supabaseAdmin, config);
 
+    console.log(`[process-products] Process completed for user ${user_id}`);
     return new Response(JSON.stringify({ message: `Proses selesai untuk pengguna ${user_id}` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
   } catch (error) {
-    console.error('Error di process-products:', error);
+    console.error('[process-products] Error in main serve block:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
