@@ -21,6 +21,7 @@ export const Products = () => {
     saveProduct, 
     deleteProduct, 
     batchUpdateProductStatus,
+    processSingleProduct, // Import the new function
   } = useUserData();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
@@ -193,6 +194,7 @@ export const Products = () => {
                             onSort={handleSort} 
                             sortConfig={sortConfig} 
                             onActiveChange={handleActiveChange}
+                            onRetry={processSingleProduct} // Pass the new function here
                           />
                         </AccordionContent>
                       </AccordionItem>

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Product, ProductStatus } from '@/types';
 import { formatMessage } from '@/utils/translations';
+import { showError, showSuccess } from '@/utils/toast';
 
 export interface UserConfig {
   api_key: string;
@@ -53,7 +54,7 @@ const useUserData = () => {
         .from('product_logs')
         .select('log_data, created_at')
         .eq('user_id', userId)
-        .gte('created_at', oneHourAgo) // Fixed typo here: was oneHourHourAgo
+        .gte('created_at', oneHourAgo)
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -323,6 +324,48 @@ const useUserData = () => {
     }
   };
 
+  const processSingleProduct = useCallback(async (productId: number) => {
+    if (!user) {
+      showError('Anda harus login untuk memproses produk.');
+      return;
+    }
+
+    setProducts(prev => prev.map(p => 
+      p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p
+    ));
+
+    try {
+      const { data, error } = await supabase.functions.invoke('process-single-product', {
+        body: { user_id: user.id, product_id: productId },
+      });
+
+      if (error) {
+        console.error('Error invoking process-single-product:', error);
+        showError(`Gagal memproses produk: ${error.message}`);
+        setProducts(prev => prev.map(p => 
+          p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: error.message } } : p
+        ));
+        return;
+      }
+
+      if (data && data.result) {
+        updateProductsWithResults([data.result]);
+        showSuccess(`Produk ${data.result.name} berhasil diproses.`);
+      } else {
+        showError('Respon tidak valid dari server.');
+        setProducts(prev => prev.map(p => 
+          p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: 'Respon tidak valid' } } : p
+        ));
+      }
+    } catch (error) {
+      console.error('Exception during processSingleProduct:', error);
+      showError(`Terjadi kesalahan saat memproses produk: ${error instanceof Error ? error.message : String(error)}`);
+      setProducts(prev => prev.map(p => 
+        p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: error instanceof Error ? error.message : String(error) } } : p
+      ));
+    }
+  }, [user, updateProductsWithResults]);
+
   return {
     config,
     products,
@@ -334,6 +377,7 @@ const useUserData = () => {
     deleteProduct,
     batchUpdateProductStatus,
     updateProductsWithResults,
+    processSingleProduct,
   };
 };
 

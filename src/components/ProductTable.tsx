@@ -2,7 +2,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Pencil, Trash2, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Product, ProductStatus } from "@/types";
 import { formatMessage } from "@/utils/translations";
@@ -14,9 +14,10 @@ interface ProductTableProps {
   onSort: (key: keyof ProductStatus) => void;
   sortConfig: { key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null;
   onActiveChange: (productId: number, isActive: boolean) => void;
+  onRetry: (productId: number) => void; // New prop for retry
 }
 
-export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, onActiveChange }: ProductTableProps) {
+export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, onActiveChange, onRetry }: ProductTableProps) {
   const getStatusVariant = (status: ProductStatus['status']) => {
     switch (status) {
       case 'success':
@@ -114,6 +115,16 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
               </TableCell>
               <TableCell>{formatMessage(product.message, product.messageParams)}</TableCell>
               <TableCell className="text-right">
+                {product.status === 'error' && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => onRetry(product.product_id)}
+                    className="text-orange-500 hover:text-orange-600"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon" onClick={() => onEdit(product)}>
                   <Pencil className="h-4 w-4" />
                 </Button>
