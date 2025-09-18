@@ -10,6 +10,26 @@ const corsHeaders = {
 // Helper function to round price to nearest 10
 const roundPrice = (price) => Math.floor(price / 10) * 10;
 
+// Helper function to fetch with a timeout
+async function fetchWithTimeout(resource, options = {}, timeout = 12000) { // 12 seconds timeout
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(resource, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    if (error.name === 'AbortError') {
+      throw new Error(`Fetch aborted due to timeout after ${timeout / 1000} seconds.`);
+    }
+    throw error;
+  }
+}
+
 async function processProductLogic(supabaseAdmin, config, product) {
   const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
@@ -43,7 +63,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
     url.search = new URLSearchParams(stringifiedParams).toString();
     console.log(`[process-single-product] ${product.name} - Before scrape fetch. Time: ${Date.now() - startTime}ms`);
 
-    const competitorResponse = await fetch(url.toString());
+    const competitorResponse = await fetchWithTimeout(url.toString(), {}, 12000); // 12 seconds timeout
     console.log(`[process-single-product] ${product.name} - After scrape fetch. Status: ${competitorResponse.status}. Time: ${Date.now() - startTime}ms`);
     if (!competitorResponse.ok) {
       const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape gagal dengan status ${competitorResponse.status}` }));
@@ -167,13 +187,13 @@ async function processProductLogic(supabaseAdmin, config, product) {
       const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
       const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, updatePayload, key);
 
-      const updateResponse = await fetch(updateUrl, {
+      const updateResponse = await fetchWithTimeout(updateUrl, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
           body: JSON.stringify(updatePayload)
-      });
+      }, 12000); // 12 seconds timeout
       const updateData = await updateResponse.json();
-      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`);
+      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.Now() - startTime}ms`);
 
       if (updateResponse.ok && updateData.success) {
           resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
@@ -215,7 +235,7 @@ serve(async (req) => {
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
       .select('*')
-      .eq('user_id', user_id) // FIX: Changed from user.id to user_id
+      .eq('user_id', user_id)
       .eq('product_id', product_id)
       .single();
 
