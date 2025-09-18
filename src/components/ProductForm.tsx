@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Textarea } from '@/components/ui/textarea';
+import { Upload } from 'lucide-react';
+import { showError } from '@/utils/toast';
 import type { Product } from '@/types';
 
 const productSchema = z.object({
@@ -46,6 +49,7 @@ const MIN_PROFIT_PERCENTAGE = 0.005; // 0.5%
 const MAX_PROFIT_PERCENTAGE = 0.15; // 15%
 
 export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
+  const [jsonInput, setJsonInput] = useState('');
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
@@ -105,6 +109,30 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
     onSubmit(data as Omit<Product, 'isActive'>);
   };
 
+  const handleJsonAutoFill = () => {
+    try {
+      const parsedJson = JSON.parse(jsonInput);
+      const productData = parsedJson?.data?.data?.[0];
+
+      if (!productData) {
+        throw new Error('Invalid JSON structure. Expected data.data[0] to contain product details.');
+      }
+
+      form.setValue('name', productData.name || '');
+      form.setValue('category', productData.item_type?.name || '');
+      form.setValue('product_id', productData.id || 0);
+      form.setValue('game_id', productData.game_id || 0);
+      form.setValue('item_type_id', productData.item_type_id || 0);
+      form.setValue('item_info_group_id', productData.item_info_group_id || undefined);
+      form.setValue('item_info_id', productData.item_info_id || 0);
+      
+      // Clear JSON input after successful auto-fill
+      setJsonInput('');
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Invalid JSON format or missing product data.');
+    }
+  };
+
   return (
     <DialogContent 
       className="sm:max-w-[600px]"
@@ -119,6 +147,19 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handleFormSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+          <div className="md:col-span-2 space-y-2">
+            <FormLabel>Import from Itemku JSON (Optional)</FormLabel>
+            <Textarea 
+              value={jsonInput} 
+              onChange={(e) => setJsonInput(e.target.value)} 
+              placeholder="Paste Itemku product JSON here to auto-fill fields..." 
+              className="h-32 font-mono" 
+            />
+            <Button type="button" onClick={handleJsonAutoFill} disabled={!jsonInput.trim()}>
+              <Upload className="mr-2 h-4 w-4" /> Auto-fill from JSON
+            </Button>
+          </div>
+
           <FormField control={form.control} name="name" render={({ field }) => (
             <FormItem>
               <FormLabel>Product Name</FormLabel>
