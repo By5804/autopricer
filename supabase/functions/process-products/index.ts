@@ -112,14 +112,8 @@ async function processUserProducts(supabaseAdmin, config) {
       
       const myPrice = myProductData.price;
       const myStock = myProductData.stock;
-      
-      // Debugging logs for mySoldCount
-      console.log(`[process-products] My product data for ${product.name}:`);
-      console.log(`  myProductData.order_record: ${JSON.stringify(myProductData.order_record)}`);
-      console.log(`  myProductData.sold_count: ${myProductData.sold_count}`);
+      // Mengambil mySoldCount dari order_record.successful_order_count atau sold_count
       const mySoldCount = myProductData.order_record?.successful_order_count ?? myProductData.sold_count;
-      console.log(`  Calculated mySoldCount: ${mySoldCount}`);
-
       let competitorPrice, competitorStoreName, competitorStock, competitorSoldCount;
 
       if (myProductIndex === 0) {
@@ -128,12 +122,8 @@ async function processUserProducts(supabaseAdmin, config) {
               competitorPrice = p2.price;
               competitorStoreName = p2.seller?.shop_name;
               competitorStock = p2.stock;
-              // Debugging logs for competitorSoldCount (p2)
-              console.log(`[process-products] Competitor (p2) data for ${product.name}:`);
-              console.log(`  p2.order_record: ${JSON.stringify(p2.order_record)}`);
-              console.log(`  p2.sold_count: ${p2.sold_count}`);
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count
               competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count;
-              console.log(`  Calculated competitorSoldCount (p2): ${competitorSoldCount}`);
           }
           if (!p2) {
               if (myProductData.price < product.maxPrice) {
@@ -166,23 +156,15 @@ async function processUserProducts(supabaseAdmin, config) {
               competitorPrice = target.price;
               competitorStoreName = target.seller?.shop_name;
               competitorStock = target.stock;
-              // Debugging logs for competitorSoldCount (target)
-              console.log(`[process-products] Competitor (target) data for ${product.name}:`);
-              console.log(`  target.order_record: ${JSON.stringify(target.order_record)}`);
-              console.log(`  target.sold_count: ${target.sold_count}`);
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count
               competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count;
-              console.log(`  Calculated competitorSoldCount (target): ${competitorSoldCount}`);
           } else {
               const p1 = competitorList[0];
               competitorPrice = p1.price;
               competitorStoreName = p1.seller?.shop_name;
               competitorStock = p1.stock;
-              // Debugging logs for competitorSoldCount (p1)
-              console.log(`[process-products] Competitor (p1) data for ${product.name}:`);
-              console.log(`  p1.order_record: ${JSON.stringify(p1.order_record)}`);
-              console.log(`  p1.sold_count: ${p1.sold_count}`);
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count
               competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count;
-              console.log(`  Calculated competitorSoldCount (p1): ${competitorSoldCount}`);
               message = 'logic.holdPrice';
           }
       }
