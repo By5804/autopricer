@@ -112,7 +112,8 @@ async function processUserProducts(supabaseAdmin, config) {
       
       const myPrice = myProductData.price;
       const myStock = myProductData.stock;
-      const mySoldCount = myProductData.sold_count;
+      // Mengambil mySoldCount dari order_record.successful_order_count atau sold_count
+      const mySoldCount = myProductData.order_record?.successful_order_count ?? myProductData.sold_count;
       let competitorPrice, competitorStoreName, competitorStock, competitorSoldCount;
 
       if (myProductIndex === 0) {
@@ -121,7 +122,8 @@ async function processUserProducts(supabaseAdmin, config) {
               competitorPrice = p2.price;
               competitorStoreName = p2.seller?.shop_name;
               competitorStock = p2.stock;
-              competitorSoldCount = p2.sold_count;
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count
+              competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count;
           }
           if (!p2) {
               if (myProductData.price < product.maxPrice) {
@@ -154,13 +156,15 @@ async function processUserProducts(supabaseAdmin, config) {
               competitorPrice = target.price;
               competitorStoreName = target.seller?.shop_name;
               competitorStock = target.stock;
-              competitorSoldCount = target.sold_count;
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count
+              competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count;
           } else {
               const p1 = competitorList[0];
               competitorPrice = p1.price;
               competitorStoreName = p1.seller?.shop_name;
               competitorStock = p1.stock;
-              competitorSoldCount = p1.sold_count;
+              // Mengambil competitorSoldCount dari order_record.successful_order_count atau sold_count
+              competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count;
               message = 'logic.holdPrice';
           }
       }
