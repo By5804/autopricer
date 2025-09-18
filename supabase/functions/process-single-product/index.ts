@@ -70,7 +70,8 @@ async function processProductLogic(supabaseAdmin, config, product) {
       throw new Error(errorData.message);
     }
     const competitorData = await competitorResponse.json();
-    const competitorList = competitorData.data.data;
+    // Ensure competitorList is an array
+    const competitorList = competitorData?.data?.data || [];
     console.log(`[process-single-product] ${product.name} - After parsing scrape data. Competitors: ${competitorList?.length || 0}. Time: ${Date.now() - startTime}ms`);
 
     if (!Array.isArray(competitorList) || competitorList.length === 0) {
@@ -192,8 +193,8 @@ async function processProductLogic(supabaseAdmin, config, product) {
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
           body: JSON.stringify(updatePayload)
       }, 12000); // 12 seconds timeout
-      const updateData = await updateResponse.json();
-      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.Now() - startTime}ms`);
+      const updateData = await updateResponse.json().catch(() => ({ success: false, message: `Gagal mengurai respons update dengan status ${updateResponse.status}` }));
+      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`); // FIX: Date.Now() -> Date.now()
 
       if (updateResponse.ok && updateData.success) {
           resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
