@@ -53,7 +53,7 @@ const useUserData = () => {
         .from('product_logs')
         .select('log_data, created_at')
         .eq('user_id', userId)
-        .gte('created_at', oneHourHourAgo)
+        .gte('created_at', oneHourAgo) // Fixed typo here: was oneHourHourAgo
         .order('created_at', { ascending: false })
         .limit(100);
 
