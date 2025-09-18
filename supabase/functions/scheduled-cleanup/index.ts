@@ -17,13 +17,13 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Hapus log yang lebih tua dari 1 jam
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    // Hapus log yang lebih tua dari 12 jam
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
     
     const { data, error } = await supabaseAdmin
       .from('product_logs')
       .delete()
-      .lt('created_at', oneHourAgo);
+      .lt('created_at', twelveHoursAgo);
 
     if (error) {
       console.error('Error membersihkan log lama:', error);
@@ -33,10 +33,10 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Membersihkan ${data?.length || 0} log yang lebih tua dari 1 jam`);
+    console.log(`Membersihkan ${data?.length || 0} log yang lebih tua dari 12 jam`);
     
     return new Response(JSON.stringify({ 
-      message: `Membersihkan ${data?.length || 0} log yang lebih tua dari 1 jam`,
+      message: `Membersihkan ${data?.length || 0} log yang lebih tua dari 12 jam`,
       deletedCount: data?.length || 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
