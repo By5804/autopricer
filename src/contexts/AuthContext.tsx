@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  error: string | null;
   signOut: () => Promise<void>;
 }
 
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
+  error: null,
   signOut: async () => {},
 });
 
@@ -30,58 +32,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Get initial session first
+    const fetchProfile = (userId: string) => {
+      supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+        .then(({ data, error: profileError }) => {
+          if (profileError) {
+            console.error('Error fetching profile:', profileError);
+            setError(`Gagal memuat profil pengguna: ${profileError.message}`);
+            setProfile(null);
+          } else {
+            setError(null);
+            setProfile(data);
+          }
+          if (loading) setLoading(false);
+        });
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
       if (session?.user) {
-        // Fetch profile if user exists
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data, error }) => {
-            if (error) {
-              console.error('Error fetching profile:', error);
-              setProfile(null);
-            } else {
-              setProfile(data);
-            }
-            setLoading(false);
-          });
+        fetchProfile(session.user.id);
       } else {
-        setProfile(null);
         setLoading(false);
       }
     });
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
       if (session?.user) {
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data, error }) => {
-            if (error) {
-              console.error('Error fetching profile on auth change:', error);
-              setProfile(null);
-            } else {
-              setProfile(data);
-            }
-          });
+        fetchProfile(session.user.id);
       } else {
         setProfile(null);
+        setError(null);
       }
     });
 
@@ -93,6 +83,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setSession(null);
     setUser(null);
     setProfile(null);
+    setError(null);
   };
 
   const value = {
@@ -100,6 +91,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     user,
     profile,
     loading,
+    error,
     signOut,
   };
 
