@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -41,6 +41,10 @@ interface ProductFormProps {
   productToEdit?: Product | null;
 }
 
+const MARKETPLACE_FEE = 0.05; // 5%
+const MIN_PROFIT_PERCENTAGE = 0.005; // 0.5%
+const MAX_PROFIT_PERCENTAGE = 0.15; // 15%
+
 export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -64,8 +68,6 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
   useEffect(() => {
     if (productToEdit) {
       form.reset(productToEdit);
-      // If editing, modalPrice might not be directly stored, so we don't auto-calculate
-      // unless the user explicitly enters a modalPrice.
     } else {
       form.reset({
         name: '',
@@ -85,8 +87,15 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
 
   useEffect(() => {
     if (modalPrice !== undefined && modalPrice !== null && modalPrice > 0) {
-      const calculatedMinPrice = Math.floor(modalPrice * 1.055);
-      const calculatedMaxPrice = Math.floor(modalPrice * 1.15);
+      const calculatePrice = (profitPercentage: number) => {
+        const targetNet = modalPrice * (1 + profitPercentage);
+        const rawPrice = targetNet / (1 - MARKETPLACE_FEE);
+        return Math.ceil(rawPrice / 10) * 10; // Round up to nearest 10
+      };
+
+      const calculatedMinPrice = calculatePrice(MIN_PROFIT_PERCENTAGE);
+      const calculatedMaxPrice = calculatePrice(MAX_PROFIT_PERCENTAGE);
+      
       form.setValue('minPrice', calculatedMinPrice);
       form.setValue('maxPrice', calculatedMaxPrice);
     }
