@@ -42,6 +42,16 @@ async function processProductLogic(supabaseAdmin, config, product) {
       : [];
 
   try {
+    // Add explicit checks for API and Secret keys
+    if (!api_key || api_key.trim() === '') {
+      console.error(`[process-single-product] ${product.name} - API Key is missing or empty for user ${user_id}.`);
+      return { ...product, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: 'API Key missing or empty.' } };
+    }
+    if (!secret_key || secret_key.trim() === '') {
+      console.error(`[process-single-product] ${product.name} - Secret Key is missing or empty for user ${user_id}.`);
+      return { ...product, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: 'Secret Key missing or empty.' } };
+    }
+
     const scrapeUrl = "https://api-gateway.itemku.com/v1/product";
     const scrapeParams = {
         is_include_game: '1', is_include_item_type: '1', is_include_item_info_group: '1',
@@ -181,7 +191,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
 
     if (newPrice !== null) {
       console.log(`[process-single-product] ${product.name} - Before price update. Time: ${Date.now() - startTime}ms`);
-      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-265" }, false, ["sign"]);
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
       const nonce = Math.floor(Date.now() / 1000).toString();
       const updatePayload = { product_id: product.product_id, new_price: newPrice };
       const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
@@ -193,7 +203,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
           body: JSON.stringify(updatePayload)
       }, 12000); // 12 seconds timeout
       const updateData = await updateResponse.json();
-      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.Now() - startTime}ms`);
+      console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`);
 
       if (updateResponse.ok && updateData.success) {
           resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
@@ -235,7 +245,7 @@ serve(async (req) => {
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
       .select('*')
-      .eq('user_id', user_id)
+      .eq('user_id', user.id)
       .eq('product_id', product_id)
       .single();
 
