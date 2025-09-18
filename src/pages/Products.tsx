@@ -94,7 +94,7 @@ export const Products = () => {
   const handleSort = (key: keyof ProductStatus) => {
     let direction: 'ascending' | 'descending' = 'ascending';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-      direction = 'descending';
+      direction = 'desending';
     }
     setSortConfig({ key, direction });
   };
@@ -239,7 +239,6 @@ export const Products = () => {
       <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
         <ProductForm 
           onSubmit={handleFormSubmit} 
-          onImport={handleImportSubmit}
           productToEdit={editingProduct}
         />
       </Dialog>
