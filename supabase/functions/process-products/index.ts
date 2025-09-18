@@ -1,0 +1,327 @@
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+import { create } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+async function processUserProducts(supabaseAdmin, config) {
+  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
+
+  const { data: products, error: productsError } = await supabaseAdmin
+    .from('user_products')
+    .select('*')
+    .eq('user_id', user_id)
+    .eq('is_active', true);
+
+  if (productsError) {
+    console.error(`Error fetching products for user ${user_id}:`, productsError);
+    return [];
+  }
+
+  if (!products || products.length === 0) {
+    console.log(`No active products to process for user ${user_id}.`);
+    return [];
+  }
+  
+  const productList = products.map(p => ({
+    name: p.name,
+    category: p.category,
+    product_id: p.product_id,
+    minPrice: p.min_price,
+    maxPrice: p.max_price,
+    priceUndercutAmount: p.undercut_amount,
+    game_id: p.game_id,
+    item_type_id: p.item_type_id,
+    item_info_group_id: p.item_info_group_id,
+    item_info_id: p.item_info_id,
+    isActive: p.is_active,
+  }));
+
+  const whitelistedStores = whitelist 
+      ? whitelist.split(',').map(name => name.trim().toLowerCase()) 
+      : [];
+
+  const roundPrice = (price) => Math.floor(price / 10) * 10;
+  const isWhitelisted = (competitor, stores) => {
+      if (!competitor) return false;
+      const competitorName = competitor.seller?.shop_name?.toLowerCase() || '';
+      return stores.includes(competitorName);
+  };
+  const isTargetable = (competitor, product, stores, undercut) => {
+      if (!competitor) return false;
+      if (isWhitelisted(competitor, stores)) return false;
+      const potentialNewPrice = roundPrice(competitor.price - undercut);
+      if (potentialNewPrice < product.minPrice) return false;
+      return true;
+  };
+  
+  const results = [];
+
+  for (const product of productList) {
+    let resultPayload;
+    const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
+    try {
+      const scrapeUrl = "https://api-gateway.itemku.com/v1/product";
+      const scrapeParams = {
+          is_include_game: '1', is_include_item_type: '1', is_include_item_info_group: '1',
+          is_include_order_record: '1', is_include_upselling_product: '1', use_simple_pagination: '1', per_page: '10',
+          page: '1', sort: 'cheap', is_default_product_list: '1', is_auto_delivery_first: '1',
+          is_with_promotion: '1', is_enough_stock: '1', "country_codes[]": 'ID',
+          game_id: product.game_id, item_type_id: product.item_type_id,
+          item_info_id: product.item_info_id,
+          is_exclusive:'false',
+          is_include_instant_delivery:'true',
+          use_auto_delivery:'true',
+          ...(product.item_info_group_id && { item_info_group_id: product.item_info_group_id }),
+      };
+      
+      const url = new URL(scrapeUrl);
+      const stringifiedParams = Object.fromEntries(
+        Object.entries(scrapeParams).map(([key, value]) => [key, String(value)])
+      );
+      url.search = new URLSearchParams(stringifiedParams).toString();
+
+      const competitorResponse = await fetch(url.toString());
+      if (!competitorResponse.ok) {
+        const errorData = await competitorResponse.json().catch(() => ({ message: `Scrape failed with status ${competitorResponse.status}` }));
+        throw new Error(errorData.message);
+      }
+      const competitorData = await competitorResponse.json();
+      const competitorList = competitorData.data.data;
+
+      if (!Array.isArray(competitorList) || competitorList.length === 0) {
+        resultPayload = { ...product, status: 'error', message: 'logic.noCompetitor' };
+        results.push(resultPayload);
+        continue;
+      }
+
+      const myProductIndex = competitorList.findIndex(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
+
+      if (myProductIndex === -1) {
+        resultPayload = { ...product, status: 'error', message: 'logic.outOfStock' };
+        results.push(resultPayload);
+        continue;
+      }
+      
+      const myProductData = competitorList[myProductIndex];
+      let shouldUpdate = false;
+      let newPrice = null;
+      let potentialNewPrice = null;
+      let status = 'success';
+      let message = '';
+      let messageParams = {};
+      
+      const myPrice = myProductData.price;
+      let competitorPrice, competitorStoreName;
+
+      if (myProductIndex === 0) {
+          const p2 = competitorList[1];
+          if (p2) {
+              competitorPrice = p2.price;
+              competitorStoreName = p2.seller?.shop_name;
+          }
+          if (!p2) {
+              if (myProductData.price < product.maxPrice) {
+                  potentialNewPrice = product.maxPrice;
+                  message = 'logic.onlySellerSetMax';
+              } else {
+                  message = 'logic.onlySellerAtMax';
+              }
+          } else {
+              const priceDiff = p2.price - myProductData.price;
+              if (priceDiff > (undercutValue + 90)) {
+                  let tempPrice = roundPrice(p2.price - undercutValue);
+                  tempPrice = Math.min(tempPrice, product.maxPrice);
+                  if (tempPrice !== myProductData.price) {
+                      potentialNewPrice = tempPrice;
+                      message = 'logic.maximizeProfit';
+                  } else {
+                      message = 'logic.cheapestOptimal';
+                  }
+              } else {
+                  message = 'logic.cheapestOptimal';
+              }
+          }
+      } else {
+          const validTargets = [];
+          for (let i = 0; i < myProductIndex; i++) {
+              const competitor = competitorList[i];
+              if (isTargetable(competitor, product, whitelistedStores, undercutValue)) {
+                  validTargets.push(competitor);
+              }
+          }
+          if (validTargets.length > 0) {
+              const target = validTargets[0];
+              potentialNewPrice = roundPrice(target.price - undercutValue);
+              message = 'logic.undercutting';
+              messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+              competitorPrice = target.price;
+              competitorStoreName = target.seller?.shop_name;
+          } else {
+              const p1 = competitorList[0];
+              competitorPrice = p1.price;
+              competitorStoreName = p1.seller?.shop_name;
+              message = 'logic.holdPrice';
+          }
+      }
+
+      if (potentialNewPrice !== null && potentialNewPrice !== myProductData.price) {
+          if (potentialNewPrice < product.minPrice) {
+              message = 'logic.violatesMinPrice';
+              messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
+          } else if (potentialNewPrice > product.maxPrice) {
+              message = 'logic.violatesMaxPrice';
+              messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
+          } else {
+              newPrice = potentialNewPrice;
+              shouldUpdate = true;
+          }
+      }
+
+      resultPayload = { ...product, myPrice, competitorPrice, competitorStoreName, newPrice, messageParams };
+
+      if (shouldUpdate && newPrice !== null) {
+        const key = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(secret_key),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+        );
+        const nonce = Math.floor(Date.now() / 1000).toString();
+        const updatePayload = { product_id: product.product_id, new_price: newPrice };
+        const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
+        
+        const token = await create(
+            { alg: "HS256", "X-Api-Key": api_key, Nonce: nonce },
+            updatePayload,
+            key
+        );
+
+        try {
+          const updateResponse = await fetch(updateUrl, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
+            body: JSON.stringify(updatePayload)
+          });
+
+          const updateData = await updateResponse.json();
+
+          if (updateResponse.ok && updateData.success) {
+            resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
+          } else {
+            resultPayload = { ...resultPayload, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: updateData?.message || `Update failed with status ${updateResponse.status}` } };
+          }
+        } catch (updateError) {
+          resultPayload = { ...resultPayload, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: updateError.message } };
+        }
+      } else {
+        resultPayload = { ...resultPayload, status, message };
+      }
+    } catch (error) {
+      resultPayload = { ...product, status: 'error', message: 'logic.scrapeFail', messageParams: { errorMessage: error.message } };
+    } finally {
+      results.push(resultPayload);
+    }
+  }
+  
+  if (results.length > 0) {
+    const logsToInsert = results.map(r => ({
+      user_id: user_id,
+      product_id: r.product_id,
+      log_data: r
+    }));
+    const { error: logError } = await supabaseAdmin.from('product_logs').insert(logsToInsert);
+    if (logError) {
+      console.error(`Error inserting logs for user ${user_id}:`, logError);
+    }
+  }
+
+  return results;
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
+    let userIdToProcess;
+    const authHeader = req.headers.get('Authorization');
+    let body;
+
+    try {
+      body = await req.json();
+    } catch (e) {
+      body = {};
+    }
+
+    if (body.user_id) {
+      userIdToProcess = body.user_id;
+    }
+    else if (authHeader) {
+      const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      if (!user) {
+        return new Response(JSON.stringify({ error: 'Invalid or expired user token' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      userIdToProcess = user.id;
+    }
+    else {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!userIdToProcess) {
+      return new Response(JSON.stringify({ error: 'Could not determine user to process' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const { data: config, error: configError } = await supabaseAdmin
+      .from('user_configurations')
+      .select('*')
+      .eq('user_id', userIdToProcess)
+      .single();
+
+    if (configError || !config) {
+      console.error(`Configuration not found for user ${userIdToProcess}:`, configError);
+      return new Response(JSON.stringify({ error: `Configuration not found for user ${userIdToProcess}` }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const results = await processUserProducts(supabaseAdmin, config);
+
+    return new Response(JSON.stringify(results), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
+    });
+
+  } catch (error) {
+    console.error('Error in process-products:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500,
+    });
+  }
+});
