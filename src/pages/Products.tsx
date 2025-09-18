@@ -9,7 +9,7 @@ import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
 import { Upload, Save } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
-import type { Product } from '@/types';
+import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
 
 export const Products = () => {
@@ -26,14 +26,9 @@ export const Products = () => {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [jsonInput, setJsonInput] = useState('');
-  const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'ascending' | 'descending' } | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
+  const [view, setView] = useState<'all' | 'active'>('all');
   const [pendingChanges, setPendingChanges] = useState<Map<number, boolean>>(new Map());
-
-  const categories = ['All', ...Array.from(new Set(products.map(p => p.category).filter(Boolean))) as string[]];
-  const filteredProducts = selectedCategory === 'All' 
-    ? products 
-    : products.filter(p => p.category === selectedCategory);
 
   const handleActiveChange = (productId: number, isActive: boolean) => {
     setPendingChanges(prev => {
@@ -80,7 +75,7 @@ export const Products = () => {
     setEditingProduct(null);
   };
 
-  const handleSort = (key: keyof Product) => {
+  const handleSort = (key: keyof ProductStatus) => {
     let direction: 'ascending' | 'descending' = 'ascending';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
       direction = 'descending';
@@ -122,6 +117,21 @@ export const Products = () => {
       </div>
     );
   }
+
+  const filteredProducts = view === 'active'
+    ? products.filter(p => pendingChanges.get(p.product_id) ?? p.isActive)
+    : products;
+
+  const groupedProducts = filteredProducts.reduce<Record<string, ProductStatus[]>>((acc, product) => {
+    const category = product.category || 'Uncategorized';
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category].push(product);
+    return acc;
+  }, {});
+
+  const sortedCategories = Object.keys(groupedProducts).sort((a, b) => a.localeCompare(b));
 
   return (
     <div className="p-8 space-y-8">
@@ -167,30 +177,57 @@ export const Products = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {categories.length > 1 && (
-            <Tabs defaultValue="All" value={selectedCategory} onValueChange={setSelectedCategory} className="mb-4">
-              <TabsList>
-                {categories.map(c => (
-                  <TabsTrigger key={c} value={c}>{c}</TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          )}
-          <ProductTable 
-            products={filteredProducts} 
-            pendingChanges={pendingChanges}
-            onEdit={handleEditProduct} 
-            onDelete={handleDeleteProduct} 
-            onSort={handleSort} 
-            sortConfig={sortConfig} 
-            onActiveChange={handleActiveChange}
-          />
-          {products.length > 0 && filteredProducts.length === 0 && (
-            <p className="text-center text-gray-500 py-4">No products in this category.</p>
-          )}
-          {products.length === 0 && (
-            <p className="text-center text-gray-500 py-4">No products added yet.</p>
-          )}
+          <Tabs defaultValue="all" value={view} onValueChange={(value) => setView(value as 'all' | 'active')} className="mb-4">
+            <TabsList>
+              <TabsTrigger value="all">All Products</TabsTrigger>
+              <TabsTrigger value="active">Active Products</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          
+          <div className="space-y-8">
+            {products.length > 0 ? (
+              sortedCategories.length > 0 ? (
+                sortedCategories.map(category => {
+                  const categoryProducts = groupedProducts[category];
+                  const sortedProducts = [...categoryProducts].sort((a, b) => {
+                    if (!sortConfig) return 0;
+                    const { key, direction } = sortConfig;
+                    const valA = a[key];
+                    const valB = b[key];
+                    if (valA === valB) return 0;
+                    if (valA === null || valA === undefined) return 1;
+                    if (valB === null || valB === undefined) return -1;
+                    let comparison = 0;
+                    if (typeof valA === 'number' && typeof valB === 'number') {
+                      comparison = valA - valB;
+                    } else {
+                      comparison = String(valA).localeCompare(String(valB));
+                    }
+                    return direction === 'ascending' ? comparison : -comparison;
+                  });
+
+                  return (
+                    <div key={category}>
+                      <h2 className="text-xl font-semibold mb-3 pb-2 border-b">{category}</h2>
+                      <ProductTable 
+                        products={sortedProducts} 
+                        pendingChanges={pendingChanges}
+                        onEdit={handleEditProduct} 
+                        onDelete={handleDeleteProduct} 
+                        onSort={handleSort} 
+                        sortConfig={sortConfig} 
+                        onActiveChange={handleActiveChange}
+                      />
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-gray-500 py-4">No products match the current filter.</p>
+              )
+            ) : (
+              <p className="text-center text-gray-500 py-4">No products added yet.</p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
