@@ -341,30 +341,39 @@ const useUserData = () => {
 
       if (error) {
         console.error('Error invoking process-single-product:', error);
-        showError(`Gagal memproses produk: ${error.message}`);
+        const errorMessage = error.message || 'Unknown error';
+        showError(`Gagal memproses produk: ${errorMessage}`);
         setProducts(prev => prev.map(p => 
-          p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: error.message } } : p
+          p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
         ));
+        // Tambahkan ke log lokal untuk umpan balik instan
+        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`);
         return;
       }
 
       if (data && data.result) {
         updateProductsWithResults([data.result]);
         showSuccess(`Produk ${data.result.name} berhasil diproses.`);
+        // Tambahkan ke log lokal untuk umpan balik instan
+        const timestamp = new Date().toLocaleTimeString();
+        addLog(`${timestamp}: ${data.result.name}: ${formatMessage(data.result.message, data.result.messageParams)}`);
       } else {
         showError('Respon tidak valid dari server.');
         setProducts(prev => prev.map(p => 
           p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: 'Respon tidak valid' } } : p
         ));
+        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage: 'Respon tidak valid dari server.' })}`);
       }
     } catch (error) {
       console.error('Exception during processSingleProduct:', error);
-      showError(`Terjadi kesalahan saat memproses produk: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      showError(`Terjadi kesalahan saat memproses produk: ${errorMessage}`);
       setProducts(prev => prev.map(p => 
-        p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: error instanceof Error ? error.message : String(error) } } : p
+        p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
       ));
+      addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`);
     }
-  }, [user, updateProductsWithResults]);
+  }, [user, updateProductsWithResults, addLog]);
 
   return {
     config,
