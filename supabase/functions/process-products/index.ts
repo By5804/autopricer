@@ -101,13 +101,17 @@ async function processUserProducts(supabaseAdmin, config) {
       let messageParams = {};
       
       const myPrice = myProductData.price;
-      let competitorPrice, competitorStoreName;
+      const myStock = myProductData.stock;
+      const mySoldCount = myProductData.sold_count;
+      let competitorPrice, competitorStoreName, competitorStock, competitorSoldCount;
 
       if (myProductIndex === 0) {
           const p2 = competitorList[1];
           if (p2) {
               competitorPrice = p2.price;
               competitorStoreName = p2.seller?.shop_name;
+              competitorStock = p2.stock;
+              competitorSoldCount = p2.sold_count;
           }
           if (!p2) {
               if (myProductData.price < product.maxPrice) {
@@ -139,10 +143,14 @@ async function processUserProducts(supabaseAdmin, config) {
               messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
               competitorPrice = target.price;
               competitorStoreName = target.seller?.shop_name;
+              competitorStock = target.stock;
+              competitorSoldCount = target.sold_count;
           } else {
               const p1 = competitorList[0];
               competitorPrice = p1.price;
               competitorStoreName = p1.seller?.shop_name;
+              competitorStock = p1.stock;
+              competitorSoldCount = p1.sold_count;
               message = 'logic.holdPrice';
           }
       }
@@ -161,10 +169,23 @@ async function processUserProducts(supabaseAdmin, config) {
           }
       }
 
-      resultPayload = { ...product, myPrice, competitorPrice, competitorStoreName, newPrice, message, messageParams, status: 'success' };
+      resultPayload = { 
+        ...product, 
+        myPrice, 
+        myStock,
+        mySoldCount,
+        competitorPrice, 
+        competitorStoreName, 
+        competitorStock, 
+        competitorSoldCount,
+        newPrice, 
+        message, 
+        messageParams, 
+        status: 'success' 
+      };
 
       if (newPrice !== null) {
-        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-265" }, false, ["sign"]);
         const nonce = Math.floor(Date.now() / 1000).toString();
         const updatePayload = { product_id: product.product_id, new_price: newPrice };
         const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
