@@ -225,9 +225,9 @@ export const Products = () => {
             <CardDescription>Latest price checking results</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="bg-muted p-4 rounded-md max-h-64 overflow-y-auto">
+            <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
               {logs.map((log, index) => (
-                <div key={index} className="text-sm font-mono py-1 border-b border-border/50 last:border-b-0">
+                <div key={index} className="text-sm font-mono py-0.5 border-b border-border/50 last:border-b-0">
                   {log}
                 </div>
               ))}
