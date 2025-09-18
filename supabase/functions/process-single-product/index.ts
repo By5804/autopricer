@@ -197,7 +197,13 @@ async function processProductLogic(supabaseAdmin, config, product) {
 
     if (newPrice !== null) {
       console.log(`[process-single-product] ${product.name} - Before price update. Time: ${Date.now() - startTime}ms`);
-      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-265" }, false, ["sign"]);
+      const key = await crypto.subtle.importKey(
+        "raw", 
+        new TextEncoder().encode(secret_key), 
+        { name: "HMAC", hash: { name: "SHA-256" } }, // Corrected from SHA-265 to SHA-256
+        false, 
+        ["sign"]
+      );
       const nonce = Math.floor(Date.now() / 1000).toString();
       const updatePayload = { product_id: product.product_id, new_price: newPrice };
       const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
