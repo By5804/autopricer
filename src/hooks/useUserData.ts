@@ -125,21 +125,24 @@ const useUserData = () => {
         if (productsError) {
           console.error('Error loading products:', productsError);
         } else {
-          const formattedProducts: ProductStatus[] = (productsData || []).map(p => ({
-            product_id: p.product_id,
-            name: p.name,
-            category: p.category,
-            minPrice: p.min_price,
-            maxPrice: p.max_price,
-            priceUndercutAmount: p.undercut_amount,
-            game_id: p.game_id,
-            item_type_id: p.item_type_id,
-            item_info_group_id: p.item_info_group_id,
-            item_info_id: p.item_info_id,
-            isActive: p.is_active,
-            status: 'idle',
-            message: 'logic.waiting',
-          }));
+          const formattedProducts: ProductStatus[] = (productsData || []).map(p => {
+            console.log(`[useUserData] Product ${p.product_id} loaded from DB: is_active = ${p.is_active}`);
+            return {
+              product_id: p.product_id,
+              name: p.name,
+              category: p.category,
+              minPrice: p.min_price,
+              maxPrice: p.max_price,
+              priceUndercutAmount: p.undercut_amount,
+              game_id: p.game_id,
+              item_type_id: p.item_type_id,
+              item_info_group_id: p.item_info_group_id,
+              item_info_id: p.item_info_id,
+              isActive: p.is_active,
+              status: 'idle',
+              message: 'logic.waiting',
+            };
+          });
           setProducts(formattedProducts);
         }
 
@@ -281,8 +284,9 @@ const useUserData = () => {
     }
     try {
       console.log(`[useUserData] Attempting to batch update ${updates.length} products for user ${user.id}`);
-      const updatePromises = updates.map(({ productId, isActive }) =>
-        supabase
+      const updatePromises = updates.map(({ productId, isActive }) => {
+        console.log(`[useUserData] Sending update for product ${productId}: is_active = ${isActive}`); // Log sebelum update
+        return supabase
           .from('user_products')
           .update({
             is_active: isActive,
@@ -297,8 +301,8 @@ const useUserData = () => {
               console.log(`[useUserData] Successfully updated product ${productId} to isActive: ${isActive}`);
             }
             return response;
-          })
-      );
+          });
+      });
 
       const results = await Promise.all(updatePromises);
 
