@@ -23,5 +23,4 @@ export interface ProductStatus extends Product {
   myStock?: number;
   mySoldCount?: number;
   competitorStock?: number;
-  competitorSoldCount?: number;
 }

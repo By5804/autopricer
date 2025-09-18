@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
+import { Dialog } from '@/components/ui/dialog';
 import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
-import { Upload, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
@@ -23,9 +22,7 @@ export const Products = () => {
   } = useUserData();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [jsonInput, setJsonInput] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'ascending' | 'descending' } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [pendingChanges, setPendingChanges] = useState<Map<number, boolean>>(new Map());
@@ -88,11 +85,11 @@ export const Products = () => {
     setSortConfig({ key, direction });
   };
 
-  const handleJsonImportSubmit = () => {
+  const handleJsonImportSubmit = async (jsonString: string) => {
     try {
-      const data = JSON.parse(jsonInput);
+      const data = JSON.parse(jsonString);
       if (data.data && Array.isArray(data.data)) {
-        data.data.forEach((item: any) => {
+        const importPromises = data.data.map((item: any) => {
           const product: Omit<Product, 'isActive'> = {
             name: item.name,
             category: item.category_name,
@@ -104,14 +101,17 @@ export const Products = () => {
             item_info_group_id: item.item_info_group_id,
             item_info_id: item.item_info_id,
           };
-          saveProduct(product);
+          return saveProduct(product);
         });
-        setIsImportDialogOpen(false);
-        setJsonInput('');
+        await Promise.all(importPromises);
+        showSuccess(`${data.data.length} products imported successfully.`);
+        setIsFormDialogOpen(false);
+      } else {
+        showError('Invalid JSON format. Expected a "data" array.');
       }
     } catch (error) {
       console.error('Error parsing JSON:', error);
-      alert('Invalid JSON format');
+      showError('Invalid JSON format.');
     }
   };
 
@@ -139,28 +139,6 @@ export const Products = () => {
               </Button>
             )}
             <LogicExplanationDialog />
-            <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">
-                  <Upload className="mr-2 h-4 w-4" /> Import Products
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Import Products from JSON</DialogTitle>
-                  <DialogDescription>Paste the JSON response from the Itemku product list API here.</DialogDescription>
-                </DialogHeader>
-                <Textarea 
-                  value={jsonInput} 
-                  onChange={(e) => setJsonInput(e.target.value)} 
-                  placeholder="Paste your JSON here..." 
-                  className="h-64" 
-                />
-                <DialogFooter>
-                  <Button onClick={handleJsonImportSubmit}>Import</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
             <Button onClick={() => { setEditingProduct(null); setIsFormDialogOpen(true); }}>
               Add Product
             </Button>
@@ -197,6 +175,7 @@ export const Products = () => {
       <Dialog open={isFormDialogOpen} onOpenChange={setIsFormDialogOpen}>
         <ProductForm 
           onSubmit={handleFormSubmit} 
+          onJsonImport={handleJsonImportSubmit}
           productToEdit={editingProduct}
         />
       </Dialog>

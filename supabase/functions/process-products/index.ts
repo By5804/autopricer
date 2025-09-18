@@ -101,13 +101,14 @@ async function processUserProducts(supabaseAdmin, config) {
       let messageParams = {};
       
       const myPrice = myProductData.price;
-      let competitorPrice, competitorStoreName;
+      let competitorPrice, competitorStoreName, competitorStock;
 
       if (myProductIndex === 0) {
           const p2 = competitorList[1];
           if (p2) {
               competitorPrice = p2.price;
               competitorStoreName = p2.seller?.shop_name;
+              competitorStock = p2.stock;
           }
           if (!p2) {
               if (myProductData.price < product.maxPrice) {
@@ -139,10 +140,12 @@ async function processUserProducts(supabaseAdmin, config) {
               messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
               competitorPrice = target.price;
               competitorStoreName = target.seller?.shop_name;
+              competitorStock = target.stock;
           } else {
               const p1 = competitorList[0];
               competitorPrice = p1.price;
               competitorStoreName = p1.seller?.shop_name;
+              competitorStock = p1.stock;
               message = 'logic.holdPrice';
           }
       }
@@ -161,7 +164,7 @@ async function processUserProducts(supabaseAdmin, config) {
           }
       }
 
-      resultPayload = { ...product, myPrice, competitorPrice, competitorStoreName, newPrice, message, messageParams, status: 'success' };
+      resultPayload = { ...product, myPrice, competitorPrice, competitorStoreName, competitorStock, newPrice, message, messageParams, status: 'success' };
 
       if (newPrice !== null) {
         const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
