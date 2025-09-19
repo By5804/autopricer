@@ -31,7 +31,7 @@ const translations: Record<string, string> = {
   "logic.profitMaximizationVsBelow": "Maximizing profit against competitor below you ({{competitorStoreName}}).",
   "logic.updateSuccess": "Price updated successfully to Rp {{newPrice}}.",
   "logic.updateFail": "Update failed: {{errorMessage}}",
-  "logic.scrapeFail": "Scrape failed: {{errorMessage}",
+  "logic.scrapeFail": "Scrape failed: {{errorMessage}}",
   "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
   "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
 };
@@ -72,51 +72,7 @@ async function fetchWithTimeout(resource, options = {}, timeout = 12000) { // 12
   }
 }
 
-// Helper function to send Discord notification
-async function sendDiscordNotification(webhookUrl, message, product) {
-  if (!webhookUrl) {
-    console.log(`[Discord Webhook] Tidak mengirim notifikasi: webhookUrl kosong.`);
-    return;
-  }
-
-  const embedColor = product.status === 'error' ? 15548997 : (product.status === 'updated' ? 3066993 : 3447003); // Red, Green, Blue
-
-  const payload = {
-    username: "Itemku Pricer Bot",
-    avatar_url: "https://www.itemku.com/assets/images/favicon.png", // Example avatar
-    embeds: [
-      {
-        // Title removed for conciseness
-        description: message, // Use the pre-formatted concise message
-        color: embedColor,
-        // Fields removed for conciseness
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  };
-
-  try {
-    console.log(`[Discord Webhook] Mengirim notifikasi ke: ${webhookUrl}`);
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      console.error(`[Discord Webhook] Gagal mengirim notifikasi: ${response.status} ${response.statusText}`);
-      const errorText = await response.text();
-      console.error(`[Discord Webhook] Respon error dari Discord: ${errorText}`);
-    } else {
-      console.log(`[Discord Webhook] Notifikasi berhasil dikirim untuk produk ${product.name}.`);
-    }
-  } catch (error) {
-    console.error(`[Discord Webhook] Error saat mengirim notifikasi: ${error.message}`);
-  }
-}
-
+// sendDiscordNotification function removed from here
 
 async function processProductLogic(supabaseAdmin, config, product) {
   const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
@@ -358,13 +314,15 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'user_id dan product_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
+    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
 
     if (configError || !config) {
       console.error(`[process-single-product] Configuration not found for user ${user_id}:`, configError);
+      // Return a response, but don't fail the entire process if config is just for webhook
+      // For now, we'll still return 404 if config is critical for product processing
       return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    console.log(`[process-single-product] Configuration found for user ${user_id}. Discord Webhook URL: ${config.discord_webhook_url ? 'Set' : 'Not Set'}`);
+    // console.log(`[process-single-product] Configuration found for user ${user_id}. Discord Webhook URL: ${config.discord_webhook_url ? 'Set' : 'Not Set'}`); // Removed detailed logging here
 
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
@@ -398,10 +356,7 @@ serve(async (req) => {
     if (logError) console.error(`[process-single-product] Error inserting log for product ${result.product_id}:`, logError);
     else console.log(`[process-single-product] Successfully inserted log for product ${result.product_id}.`);
 
-    // Send Discord notification
-    // Format the message to be concise: "Product Name: Message"
-    const formattedMessage = `${result.name}: ${formatMessage(result.message, result.messageParams)}`;
-    await sendDiscordNotification(config.discord_webhook_url, formattedMessage, result);
+    // sendDiscordNotification(config.discord_webhook_url, formattedMessage, result); // Removed Discord notification call
 
     console.log(`[process-single-product] Process completed for product ${product_id} of user ${user_id}`);
     return new Response(JSON.stringify({ message: `Proses selesai untuk produk ${product_id}`, result }), {
