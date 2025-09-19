@@ -106,6 +106,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
   }, [modalPrice, form.setValue]);
 
   const handleFormSubmit = (data: ProductFormData) => {
+    console.log('Submitting product data:', data); // Log data before submission
     onSubmit(data as Omit<Product, 'isActive'>);
   };
 
@@ -198,14 +199,14 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
           <FormField control={form.control} name="minPrice" render={({ field }) => (
             <FormItem>
               <FormLabel>Minimum Price</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 400000" {...field} readOnly={modalPrice !== undefined && modalPrice !== null && modalPrice > 0} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g., 400000" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
           <FormField control={form.control} name="maxPrice" render={({ field }) => (
             <FormItem>
               <FormLabel>Maximum Price</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 500000" {...field} readOnly={modalPrice !== undefined && modalPrice !== null && modalPrice > 0} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g., 500000" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />

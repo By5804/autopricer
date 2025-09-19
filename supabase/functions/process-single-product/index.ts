@@ -69,7 +69,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
     console.log(`[process-single-product] ${product.name} - Before scrape fetch. Time: ${Date.now() - startTime}ms`);
 
     const competitorResponse = await fetchWithTimeout(url.toString(), {}, 12000); // 12 seconds timeout
-    console.log(`[process-single-product] ${product.name} - After scrape fetch. Status: ${competitorResponse.status}. Time: ${Date.now() - startTime}ms`);
+    console.log(`[process-single-product] ${product.name} - After scrape fetch. Status: ${competpetitorResponse.status}. Time: ${Date.now() - startTime}ms`);
     if (!competitorResponse.ok) {
       let errorData = { message: `Scrape gagal dengan status ${competitorResponse.status}` };
       try {

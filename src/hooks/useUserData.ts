@@ -178,7 +178,6 @@ const useUserData = () => {
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          console.log('Realtime product_logs INSERT event received:', payload); // ADDED LOG
           const newLogData = payload.new.log_data as ProductStatus;
           if (newLogData) {
             updateProductsWithResults([newLogData]);
@@ -238,6 +237,8 @@ const useUserData = () => {
         updated_at: new Date().toISOString(),
       };
       
+      console.log('Saving product to Supabase:', productData); // Log data before upsert
+
       const { error } = await supabase
         .from('user_products')
         .upsert(productData, { onConflict: 'user_id,product_id' });
