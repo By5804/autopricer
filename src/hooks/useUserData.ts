@@ -220,7 +220,7 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'>) => {
     if (!user) return false;
     try {
-      console.log('[saveProduct] Product data received:', product); // Log 1: Data yang diterima
+      console.log('[saveProduct] Product data received:', product);
 
       const existingProduct = products.find(p => p.product_id === product.product_id);
       const productData = {
@@ -239,20 +239,27 @@ const useUserData = () => {
         updated_at: new Date().toISOString(),
       };
       
-      console.log('[saveProduct] Payload sent to Supabase:', productData); // Log 2: Payload yang dikirim
+      console.log('[saveProduct] Payload sent to Supabase:', productData);
 
-      const { data: updatedProductData, error } = await supabase
+      const { data: updatedProductData, error: upsertError } = await supabase
         .from('user_products')
         .upsert(productData, { onConflict: 'user_id,product_id' })
-        .select() // Select the updated row
-        .single(); // Expect a single row back
+        .select()
+        .single();
       
-      if (error) {
-        console.error('[saveProduct] Supabase upsert error:', error); // Log error dari Supabase
-        throw error;
+      if (upsertError) {
+        console.error('[saveProduct] Supabase upsert error:', upsertError);
+        showError(`Failed to save product: ${upsertError.message}`);
+        throw upsertError;
       }
       
-      console.log('[saveProduct] Data received from Supabase:', updatedProductData); // Log 3: Data yang diterima dari Supabase
+      if (!updatedProductData) {
+        console.warn('[saveProduct] Supabase upsert returned no data. This might indicate an issue with the upsert or RLS.');
+        showError('Failed to retrieve updated product data from Supabase. Please try again.');
+        throw new Error('No data returned after product upsert.');
+      }
+      
+      console.log('[saveProduct] Data received from Supabase:', updatedProductData);
 
       if (updatedProductData) {
         setProducts(prev => {
