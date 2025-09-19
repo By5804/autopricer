@@ -303,8 +303,8 @@ const useUserData = () => {
             product_id: updatedProductData.product_id,
             name: updatedProductData.name,
             category: updatedProductData.category,
-            minPrice: updatedProductData.min_price,
-            maxPrice: updatedToData.max_price,
+            minPrice: updatedProductData.min_price, // Corrected from updatedToData.max_price
+            maxPrice: updatedProductData.max_price, // Corrected from updatedToData.max_price
             priceUndercutAmount: updatedProductData.undercut_amount,
             game_id: updatedProductData.game_id,
             item_type_id: updatedProductData.item_type_id,
