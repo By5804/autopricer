@@ -114,7 +114,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
   }, [modalPrice, form.setValue]);
 
   const handleFormSubmit = (data: ProductFormData) => {
-    console.log('Submitting product data:', data); // Log data before submission
+    console.log('[ProductForm] Submitting product data:', JSON.stringify(data, null, 2)); // Log data before submission
     onSubmit(data as Omit<Product, 'isActive'>);
   };
 

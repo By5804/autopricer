@@ -220,7 +220,7 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'>) => {
     if (!user) return false;
     try {
-      console.log('[saveProduct] Product data received:', product);
+      console.log('[useUserData] saveProduct - Product data received:', JSON.stringify(product, null, 2));
 
       const existingProduct = products.find(p => p.product_id === product.product_id);
       const productData = {
@@ -239,28 +239,28 @@ const useUserData = () => {
         updated_at: new Date().toISOString(),
       };
       
-      console.log('[saveProduct] Payload sent to Supabase:', productData);
+      console.log('[useUserData] saveProduct - Payload sent to Supabase:', JSON.stringify(productData, null, 2));
 
       const { data: upsertResult, error: upsertError } = await supabase
         .from('user_products')
         .upsert(productData, { onConflict: 'user_id,product_id' })
-        .select('*'); // Mengubah dari .single() menjadi .select('*')
+        .select('*');
 
       if (upsertError) {
-        console.error('[saveProduct] Supabase upsert error:', upsertError);
+        console.error('[useUserData] saveProduct - Supabase upsert error:', upsertError);
         showError(`Failed to save product: ${upsertError.message}`);
         throw upsertError;
       }
       
-      const updatedProductData = upsertResult?.[0]; // Mengambil elemen pertama dari array hasil
+      const updatedProductData = upsertResult?.[0];
 
       if (!updatedProductData) {
-        console.error('[saveProduct] Supabase upsert returned no data for the updated product. This might indicate an RLS issue or an unexpected Supabase behavior.');
+        console.error('[useUserData] saveProduct - Supabase upsert returned no data for the updated product. This might indicate an RLS issue or an unexpected Supabase behavior.');
         showError('Failed to retrieve updated product data from Supabase. Please try again.');
         throw new Error('No data returned after product upsert.');
       }
       
-      console.log('[saveProduct] Data received from Supabase:', JSON.stringify(updatedProductData, null, 2));
+      console.log('[useUserData] saveProduct - Data received from Supabase:', JSON.stringify(updatedProductData, null, 2));
 
       if (updatedProductData) {
         setProducts(prev => {
@@ -292,7 +292,7 @@ const useUserData = () => {
       }
       return true;
     } catch (error) {
-      console.error('Error saving product:', error);
+      console.error('[useUserData] saveProduct - Error saving product:', error);
       return false;
     }
   };
