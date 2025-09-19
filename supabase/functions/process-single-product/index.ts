@@ -72,8 +72,6 @@ async function fetchWithTimeout(resource, options = {}, timeout = 12000) { // 12
   }
 }
 
-// sendDiscordNotification function removed from here
-
 async function processProductLogic(supabaseAdmin, config, product) {
   const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
@@ -314,15 +312,14 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'user_id dan product_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
+    // Mengubah kueri untuk mengambil semua kolom dari user_configurations
+    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
 
     if (configError || !config) {
       console.error(`[process-single-product] Configuration not found for user ${user_id}:`, configError);
-      // Return a response, but don't fail the entire process if config is just for webhook
-      // For now, we'll still return 404 if config is critical for product processing
       return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    // console.log(`[process-single-product] Configuration found for user ${user_id}. Discord Webhook URL: ${config.discord_webhook_url ? 'Set' : 'Not Set'}`); // Removed detailed logging here
+    console.log(`[process-single-product] Configuration found for user ${user_id}. Discord Webhook URL: ${config.discord_webhook_url ? 'Set' : 'Not Set'}`);
 
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
@@ -355,8 +352,6 @@ serve(async (req) => {
     const { error: logError } = await supabaseAdmin.from('product_logs').insert({ user_id, product_id: result.product_id, log_data: result });
     if (logError) console.error(`[process-single-product] Error inserting log for product ${result.product_id}:`, logError);
     else console.log(`[process-single-product] Successfully inserted log for product ${result.product_id}.`);
-
-    // sendDiscordNotification(config.discord_webhook_url, formattedMessage, result); // Removed Discord notification call
 
     console.log(`[process-single-product] Process completed for product ${product_id} of user ${user_id}`);
     return new Response(JSON.stringify({ message: `Proses selesai untuk produk ${product_id}`, result }), {
