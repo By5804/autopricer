@@ -16,6 +16,7 @@ export const Configuration = () => {
   const [storeName, setStoreName] = useState('');
   const [whitelist, setWhitelist] = useState('');
   const [priceUndercutAmount, setPriceUndercutAmount] = useState(10);
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState(''); // New state for Discord Webhook URL
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export const Configuration = () => {
       setStoreName(config.store_name);
       setWhitelist(config.whitelist);
       setPriceUndercutAmount(config.undercut_amount);
+      setDiscordWebhookUrl(config.discord_webhook_url || ''); // Load new field
     }
   }, [config]);
 
@@ -36,6 +38,7 @@ export const Configuration = () => {
       store_name: storeName,
       whitelist: whitelist,
       undercut_amount: priceUndercutAmount,
+      discord_webhook_url: discordWebhookUrl, // Save new field
     });
     if (success) {
       showSuccess('Configuration saved successfully.');
@@ -50,6 +53,7 @@ export const Configuration = () => {
     setStoreName('');
     setWhitelist('');
     setPriceUndercutAmount(10);
+    setDiscordWebhookUrl(''); // Clear new field
   };
 
   const handleExportConfig = () => {
@@ -60,6 +64,7 @@ export const Configuration = () => {
         storeName,
         whitelist,
         priceUndercutAmount,
+        discordWebhookUrl, // Export new field
         products: products.map(({ status, message, messageParams, ...coreProduct }) => coreProduct),
       };
       const jsonString = JSON.stringify(configData, null, 2);
@@ -101,6 +106,7 @@ export const Configuration = () => {
         setStoreName(importedData.storeName);
         setWhitelist(importedData.whitelist);
         setPriceUndercutAmount(importedData.priceUndercutAmount);
+        setDiscordWebhookUrl(importedData.discordWebhookUrl || ''); // Import new field
         const importedProducts = importedData.products.map((p: Product) => ({ ...p, isActive: p.isActive ?? true }));
         importedProducts.forEach(async (product: Product) => { await saveProduct(product); });
         showSuccess('Configuration imported successfully.');
@@ -146,6 +152,13 @@ export const Configuration = () => {
             <Textarea id="whitelist" placeholder="e.g., Toko A, Toko B, Toko C" value={whitelist} onChange={(e) => setWhitelist(e.target.value)} />
             <p className="text-sm text-muted-foreground">
               Products from these stores will not be undercut.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="discord-webhook-url">Discord Webhook URL (Optional)</Label>
+            <Input id="discord-webhook-url" type="url" placeholder="Paste your Discord webhook URL here" value={discordWebhookUrl} onChange={(e) => setDiscordWebhookUrl(e.target.value)} />
+            <p className="text-sm text-muted-foreground">
+              Notifications about price updates will be sent to this Discord channel.
             </p>
           </div>
         </CardContent>

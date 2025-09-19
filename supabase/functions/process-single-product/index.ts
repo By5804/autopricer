@@ -30,8 +30,59 @@ async function fetchWithTimeout(resource, options = {}, timeout = 12000) { // 12
   }
 }
 
+// Helper function to send Discord notification
+async function sendDiscordNotification(webhookUrl, message, product) {
+  if (!webhookUrl) {
+    return;
+  }
+
+  const embedColor = product.status === 'error' ? 15548997 : (product.status === 'updated' ? 3066993 : 3447003); // Red, Green, Blue
+
+  const payload = {
+    username: "Itemku Pricer Bot",
+    avatar_url: "https://www.itemku.com/assets/images/favicon.png", // Example avatar
+    embeds: [
+      {
+        title: `Produk: ${product.name}`,
+        description: message,
+        color: embedColor,
+        fields: [
+          { name: "Status", value: product.status.toUpperCase(), inline: true },
+          { name: "Harga Saya", value: product.myPrice ? `Rp ${product.myPrice.toLocaleString('id-ID')}` : '-', inline: true },
+          { name: "Harga Baru", value: product.newPrice ? `Rp ${product.newPrice.toLocaleString('id-ID')}` : '-', inline: true },
+          { name: "Pesaing", value: product.competitorStoreName || '-', inline: true },
+          { name: "Harga Pesaing", value: product.competitorPrice ? `Rp ${product.competitorPrice.toLocaleString('id-ID')}` : '-', inline: true },
+          { name: "Min/Max Harga", value: `Rp ${product.minPrice.toLocaleString('id-ID')} / Rp ${product.maxPrice.toLocaleString('id-ID')}`, inline: true },
+        ],
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.error(`[Discord Webhook] Gagal mengirim notifikasi: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`[Discord Webhook] Respon error: ${errorText}`);
+    } else {
+      console.log(`[Discord Webhook] Notifikasi berhasil dikirim untuk produk ${product.name}.`);
+    }
+  } catch (error) {
+    console.error(`[Discord Webhook] Error saat mengirim notifikasi: ${error.message}`);
+  }
+}
+
+
 async function processProductLogic(supabaseAdmin, config, product) {
-  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
+  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount, discord_webhook_url } = config;
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
   const startTime = Date.now();
 
@@ -281,12 +332,12 @@ serve(async (req) => {
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
       .select('*')
-      .eq('user_id', user_id) 
+      .eq('user_id', user_id)
       .eq('product_id', product_id)
       .single();
 
     if (productDataError || !productData) {
-      console.error(`[process-single-product] Product ${product_id} not found for user ${user_id}:`, productDataError); 
+      console.error(`[process-single-product] Product ${product_id} not found for user ${user_id}:`, productDataError);
       return new Response(JSON.stringify({ error: `Produk ${product_id} tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
     console.log(`[process-single-product] Product data found for product ${product_id}.`);
@@ -309,6 +360,10 @@ serve(async (req) => {
     const { error: logError } = await supabaseAdmin.from('product_logs').insert({ user_id, product_id: result.product_id, log_data: result });
     if (logError) console.error(`[process-single-product] Error inserting log for product ${result.product_id}:`, logError);
     else console.log(`[process-single-product] Successfully inserted log for product ${result.product_id}.`);
+
+    // Send Discord notification
+    const formattedMessage = `**${result.name}**\n${result.messageParams ? formatMessage(result.message, result.messageParams) : result.message}`;
+    await sendDiscordNotification(config.discord_webhook_url, formattedMessage, result);
 
     console.log(`[process-single-product] Process completed for product ${product_id} of user ${user_id}`);
     return new Response(JSON.stringify({ message: `Proses selesai untuk produk ${product_id}`, result }), {

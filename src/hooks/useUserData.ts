@@ -14,6 +14,7 @@ export interface UserConfig {
   is_cron_active: boolean;
   cron_interval_minutes: number;
   cron_last_run_at: string | null;
+  discord_webhook_url: string | null; // New field
 }
 
 const useUserData = () => {
@@ -27,6 +28,7 @@ const useUserData = () => {
     is_cron_active: false,
     cron_interval_minutes: 15,
     cron_last_run_at: null,
+    discord_webhook_url: null, // Initialize new field
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
