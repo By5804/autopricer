@@ -239,32 +239,42 @@ const useUserData = () => {
       
       console.log('Saving product to Supabase:', productData); // Log data before upsert
 
-      const { error } = await supabase
+      const { data: updatedProductData, error } = await supabase
         .from('user_products')
-        .upsert(productData, { onConflict: 'user_id,product_id' });
+        .upsert(productData, { onConflict: 'user_id,product_id' })
+        .select() // Select the updated row
+        .single(); // Expect a single row back
       
       if (error) throw error;
       
-      setProducts(prev => {
-        const existingIndex = prev.findIndex(p => p.product_id === product.product_id);
-        if (existingIndex > -1) {
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            ...product,
-            status: 'idle',
-            message: 'logic.waiting'
+      if (updatedProductData) {
+        setProducts(prev => {
+          const existingIndex = prev.findIndex(p => p.product_id === updatedProductData.product_id);
+          const newProductStatus: ProductStatus = {
+            product_id: updatedProductData.product_id,
+            name: updatedProductData.name,
+            category: updatedProductData.category,
+            minPrice: updatedProductData.min_price,
+            maxPrice: updatedProductData.max_price,
+            priceUndercutAmount: updatedProductData.undercut_amount,
+            game_id: updatedProductData.game_id,
+            item_type_id: updatedProductData.item_type_id,
+            item_info_group_id: updatedProductData.item_info_group_id,
+            item_info_id: updatedProductData.item_info_id,
+            isActive: updatedProductData.is_active,
+            status: 'idle', // Reset status after save
+            message: 'logic.waiting', // Reset message
           };
-          return updated;
-        } else {
-          return [{
-            ...product,
-            isActive: true,
-            status: 'idle',
-            message: 'logic.waiting'
-          }, ...prev];
-        }
-      });
+
+          if (existingIndex > -1) {
+            const updated = [...prev];
+            updated[existingIndex] = { ...updated[existingIndex], ...newProductStatus };
+            return updated;
+          } else {
+            return [newProductStatus, ...prev];
+          }
+        });
+      }
       return true;
     } catch (error) {
       console.error('Error saving product:', error);
