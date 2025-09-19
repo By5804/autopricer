@@ -57,15 +57,29 @@ async function sendDiscordNotification(webhookUrl: string, messages: string[]) {
 
   const description = messages.join('\n'); // Join all messages with newlines
 
+  // Format current time to GMT+7 (Asia/Jakarta)
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false, // Use 24-hour format
+    timeZone: 'Asia/Jakarta' // GMT+7
+  };
+  const formatter = new Intl.DateTimeFormat('id-ID', options);
+  const formattedDateTime = formatter.format(now);
+
   const payload = {
     username: "Itemku Pricer Bot",
     avatar_url: "https://www.itemku.com/assets/images/favicon.png",
     embeds: [
       {
-        title: `Laporan Otomatisasi Harga - ${new Date().toLocaleDateString('id-ID', { hour: '2-digit', minute: '2-digit' })}`,
+        title: `Laporan Otomatisasi Harga - ${formattedDateTime}`, // Menggunakan waktu yang diformat GMT+7
         description: description,
         color: 3447003, // Blue color for general report
-        timestamp: new Date().toISOString(),
+        timestamp: now.toISOString(), // Timestamp ISO 8601 tetap untuk Discord agar menampilkan di zona waktu pengguna
       },
     ],
   };
@@ -158,13 +172,17 @@ serve(async (req) => {
           if (result.status === 'fulfilled' && result.value.data && result.value.data.result) {
             const productResult = result.value.data.result;
             const message = formatMessage(productResult.message, productResult.messageParams);
-            discordMessages.push(`${productResult.name}: ${message}`);
+            // Tambahkan timestamp lokal ke setiap pesan untuk konsistensi dengan contoh yang diberikan
+            const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
+            discordMessages.push(`${localTime}: ${productResult.name}: ${message}`);
           } else if (result.status === 'rejected') {
             console.error(`Error memanggil process-single-product:`, result.reason);
-            discordMessages.push(`Error memproses produk: ${result.reason.message || 'Unknown error'}`);
+            const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
+            discordMessages.push(`${localTime}: Error memproses produk: ${result.reason.message || 'Unknown error'}`);
           } else {
             console.error(`Unexpected result structure:`, result);
-            discordMessages.push(`Error memproses produk: Respon tidak valid.`);
+            const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
+            discordMessages.push(`${localTime}: Error memproses produk: Respon tidak valid.`);
           }
         }
 
