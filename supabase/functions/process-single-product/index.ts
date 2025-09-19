@@ -31,7 +31,7 @@ const translations: Record<string, string> = {
   "logic.profitMaximizationVsBelow": "Maximizing profit against competitor below you ({{competitorStoreName}}).",
   "logic.updateSuccess": "Price updated successfully to Rp {{newPrice}}.",
   "logic.updateFail": "Update failed: {{errorMessage}}",
-  "logic.scrapeFail": "Scrape failed: {{errorMessage}}",
+  "logic.scrapeFail": "Scrape failed: {{errorMessage}",
   "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
   "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
 };
@@ -75,6 +75,7 @@ async function fetchWithTimeout(resource, options = {}, timeout = 12000) { // 12
 // Helper function to send Discord notification
 async function sendDiscordNotification(webhookUrl, message, product) {
   if (!webhookUrl) {
+    console.log(`[Discord Webhook] Tidak mengirim notifikasi: webhookUrl kosong.`);
     return;
   }
 
@@ -102,6 +103,7 @@ async function sendDiscordNotification(webhookUrl, message, product) {
   };
 
   try {
+    console.log(`[Discord Webhook] Mengirim notifikasi ke: ${webhookUrl}`);
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
@@ -113,7 +115,7 @@ async function sendDiscordNotification(webhookUrl, message, product) {
     if (!response.ok) {
       console.error(`[Discord Webhook] Gagal mengirim notifikasi: ${response.status} ${response.statusText}`);
       const errorText = await response.text();
-      console.error(`[Discord Webhook] Respon error: ${errorText}`);
+      console.error(`[Discord Webhook] Respon error dari Discord: ${errorText}`);
     } else {
       console.log(`[Discord Webhook] Notifikasi berhasil dikirim untuk produk ${product.name}.`);
     }
@@ -124,7 +126,7 @@ async function sendDiscordNotification(webhookUrl, message, product) {
 
 
 async function processProductLogic(supabaseAdmin, config, product) {
-  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
+  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount, discord_webhook_url } = config;
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
   const startTime = Date.now();
 
@@ -369,7 +371,7 @@ serve(async (req) => {
       console.error(`[process-single-product] Configuration not found for user ${user_id}:`, configError);
       return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    console.log(`[process-single-product] Configuration found for user ${user_id}.`);
+    console.log(`[process-single-product] Configuration found for user ${user_id}. Discord Webhook URL: ${config.discord_webhook_url ? 'Set' : 'Not Set'}`);
 
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
