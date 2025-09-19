@@ -41,12 +41,26 @@ const useUserData = () => {
       const resultsMap = new Map(results.map(r => [r.product_id, r]));
       return prev.map(p => {
         const newResult = resultsMap.get(p.product_id);
-        return newResult ? { ...p, ...newResult } : p;
+        // Only update status-related fields from the log result
+        return newResult ? { 
+          ...p, 
+          status: newResult.status,
+          message: newResult.message,
+          messageParams: newResult.messageParams,
+          myPrice: newResult.myPrice,
+          competitorPrice: newResult.competitorPrice,
+          competitorStoreName: newResult.competitorStoreName,
+          newPrice: newResult.newPrice,
+          myStock: newResult.myStock,
+          mySoldCount: newResult.mySoldCount,
+          competitorStock: newResult.competitorStock,
+          competitorSoldCount: newResult.competitorSoldCount,
+        } : p;
       });
     });
   }, []);
 
-  const loadExistingLogs = useCallback(async (userId: string) => {
+  const loadExistingLogs = useCallback(async (userId: string, currentProducts: ProductStatus[]) => {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       
@@ -60,32 +74,50 @@ const useUserData = () => {
 
       if (error) {
         console.error('Error loading existing logs:', error);
-        return;
+        return currentProducts; // Return original products on error
       }
 
-      if (existingLogs && existingLogs.length > 0) {
-        const formattedLogs = existingLogs.map(log => {
-          const logData = log.log_data as ProductStatus;
-          const timestamp = new Date(log.created_at).toLocaleTimeString();
-          return `${timestamp}: ${logData.name}: ${formatMessage(logData.message, logData.messageParams)}`;
-        });
-        setLogs(formattedLogs);
+      const formattedLogs = (existingLogs || []).map(log => {
+        const logData = log.log_data as ProductStatus;
+        const timestamp = new Date(log.created_at).toLocaleTimeString();
+        return `${timestamp}: ${logData.name}: ${formatMessage(logData.message, logData.messageParams)}`;
+      });
+      setLogs(formattedLogs);
 
-        const latestLogsByProduct = new Map();
-        existingLogs.forEach(log => {
-          const logData = log.log_data as ProductStatus;
-          if (!latestLogsByProduct.has(logData.product_id)) {
-            latestLogsByProduct.set(logData.product_id, logData);
-          }
-        });
+      const latestLogsByProduct = new Map<number, ProductStatus>();
+      (existingLogs || []).forEach(log => {
+        const logData = log.log_data as ProductStatus;
+        if (!latestLogsByProduct.has(logData.product_id)) {
+          latestLogsByProduct.set(logData.product_id, logData);
+        }
+      });
 
-        setProducts(prev => prev.map(product => {
-          const latestLog = latestLogsByProduct.get(product.product_id);
-          return latestLog ? { ...product, ...latestLog } : product;
-        }));
-      }
+      // Merge log data into current products, only for status-related fields
+      const productsWithLogs = currentProducts.map(product => {
+        const latestLog = latestLogsByProduct.get(product.product_id);
+        if (latestLog) {
+          return {
+            ...product,
+            status: latestLog.status,
+            message: latestLog.message,
+            messageParams: latestLog.messageParams,
+            myPrice: latestLog.myPrice,
+            competitorPrice: latestLog.competitorPrice,
+            competitorStoreName: latestLog.competitorStoreName,
+            newPrice: latestLog.newPrice,
+            myStock: latestLog.myStock,
+            mySoldCount: latestLog.mySoldCount,
+            competitorStock: latestLog.competitorStock,
+            competitorSoldCount: latestLog.competitorSoldCount,
+          };
+        }
+        return product;
+      });
+      return productsWithLogs;
+
     } catch (error) {
       console.error('Error in loadExistingLogs:', error);
+      return currentProducts; // Return original products on error
     }
   }, []);
 
@@ -115,7 +147,7 @@ const useUserData = () => {
           setConfig(configData);
         }
 
-        // Fetch products
+        // Fetch products (source of truth for product configuration)
         const { data: productsData, error: productsError } = await supabase
           .from('user_products')
           .select('*')
@@ -124,10 +156,11 @@ const useUserData = () => {
 
         if (!isMounted) return;
 
+        let initialProducts: ProductStatus[] = [];
         if (productsError) {
           console.error('Error loading products:', productsError);
         } else {
-          const formattedProducts: ProductStatus[] = (productsData || []).map(p => {
+          initialProducts = (productsData || []).map(p => {
             return {
               product_id: p.product_id,
               name: p.name,
@@ -144,10 +177,11 @@ const useUserData = () => {
               message: 'logic.waiting',
             };
           });
-          setProducts(formattedProducts);
         }
 
-        await loadExistingLogs(user.id);
+        // Now, enrich these products with the latest log data (status, messages, current prices)
+        const productsWithLogs = await loadExistingLogs(user.id, initialProducts);
+        setProducts(productsWithLogs);
 
       } catch (error) {
         console.error('Error loading user data:', error);
@@ -270,7 +304,7 @@ const useUserData = () => {
             name: updatedProductData.name,
             category: updatedProductData.category,
             minPrice: updatedProductData.min_price,
-            maxPrice: updatedProductData.max_price,
+            maxPrice: updatedToData.max_price,
             priceUndercutAmount: updatedProductData.undercut_amount,
             game_id: updatedProductData.game_id,
             item_type_id: updatedProductData.item_type_id,
