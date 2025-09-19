@@ -220,6 +220,8 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'>) => {
     if (!user) return false;
     try {
+      console.log('[saveProduct] Product data received:', product); // Log 1: Data yang diterima
+
       const existingProduct = products.find(p => p.product_id === product.product_id);
       const productData = {
         user_id: user.id,
@@ -237,7 +239,7 @@ const useUserData = () => {
         updated_at: new Date().toISOString(),
       };
       
-      console.log('Saving product to Supabase:', productData); // Log data before upsert
+      console.log('[saveProduct] Payload sent to Supabase:', productData); // Log 2: Payload yang dikirim
 
       const { data: updatedProductData, error } = await supabase
         .from('user_products')
@@ -245,8 +247,13 @@ const useUserData = () => {
         .select() // Select the updated row
         .single(); // Expect a single row back
       
-      if (error) throw error;
+      if (error) {
+        console.error('[saveProduct] Supabase upsert error:', error); // Log error dari Supabase
+        throw error;
+      }
       
+      console.log('[saveProduct] Data received from Supabase:', updatedProductData); // Log 3: Data yang diterima dari Supabase
+
       if (updatedProductData) {
         setProducts(prev => {
           const existingIndex = prev.findIndex(p => p.product_id === updatedProductData.product_id);
