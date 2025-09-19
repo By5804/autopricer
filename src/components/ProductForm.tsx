@@ -71,7 +71,15 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
 
   useEffect(() => {
     if (productToEdit) {
-      form.reset(productToEdit);
+      // Clean productToEdit data to replace nulls with undefined or empty strings
+      const cleanedProduct = {
+        ...productToEdit,
+        category: productToEdit.category === null ? '' : productToEdit.category,
+        priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
+        item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
+        // modalPrice is not directly from DB in Product interface, so no need to clean here
+      };
+      form.reset(cleanedProduct);
     } else {
       form.reset({
         name: '',
