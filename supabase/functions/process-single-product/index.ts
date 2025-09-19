@@ -86,17 +86,10 @@ async function sendDiscordNotification(webhookUrl, message, product) {
     avatar_url: "https://www.itemku.com/assets/images/favicon.png", // Example avatar
     embeds: [
       {
-        title: `Produk: ${product.name}`,
-        description: message,
+        // Title removed for conciseness
+        description: message, // Use the pre-formatted concise message
         color: embedColor,
-        fields: [
-          { name: "Status", value: product.status.toUpperCase(), inline: true },
-          { name: "Harga Saya", value: product.myPrice ? `Rp ${product.myPrice.toLocaleString('id-ID')}` : '-', inline: true },
-          { name: "Harga Baru", value: product.newPrice ? `Rp ${product.newPrice.toLocaleString('id-ID')}` : '-', inline: true },
-          { name: "Pesaing", value: product.competitorStoreName || '-', inline: true },
-          { name: "Harga Pesaing", value: product.competitorPrice ? `Rp ${product.competitorPrice.toLocaleString('id-ID')}` : '-', inline: true },
-          { name: "Min/Max Harga", value: `Rp ${product.minPrice.toLocaleString('id-ID')} / Rp ${product.maxPrice.toLocaleString('id-ID')}`, inline: true },
-        ],
+        // Fields removed for conciseness
         timestamp: new Date().toISOString(),
       },
     ],
@@ -126,7 +119,7 @@ async function sendDiscordNotification(webhookUrl, message, product) {
 
 
 async function processProductLogic(supabaseAdmin, config, product) {
-  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount, discord_webhook_url } = config;
+  const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
   const startTime = Date.now();
 
@@ -406,7 +399,8 @@ serve(async (req) => {
     else console.log(`[process-single-product] Successfully inserted log for product ${result.product_id}.`);
 
     // Send Discord notification
-    const formattedMessage = `**${result.name}**\n${formatMessage(result.message, result.messageParams)}`;
+    // Format the message to be concise: "Product Name: Message"
+    const formattedMessage = `${result.name}: ${formatMessage(result.message, result.messageParams)}`;
     await sendDiscordNotification(config.discord_webhook_url, formattedMessage, result);
 
     console.log(`[process-single-product] Process completed for product ${product_id} of user ${user_id}`);
