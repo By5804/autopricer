@@ -241,25 +241,26 @@ const useUserData = () => {
       
       console.log('[saveProduct] Payload sent to Supabase:', productData);
 
-      const { data: updatedProductData, error: upsertError } = await supabase
+      const { data: upsertResult, error: upsertError } = await supabase
         .from('user_products')
         .upsert(productData, { onConflict: 'user_id,product_id' })
-        .select()
-        .single();
-      
+        .select('*'); // Mengubah dari .single() menjadi .select('*')
+
       if (upsertError) {
         console.error('[saveProduct] Supabase upsert error:', upsertError);
         showError(`Failed to save product: ${upsertError.message}`);
         throw upsertError;
       }
       
+      const updatedProductData = upsertResult?.[0]; // Mengambil elemen pertama dari array hasil
+
       if (!updatedProductData) {
-        console.warn('[saveProduct] Supabase upsert returned no data. This might indicate an issue with the upsert or RLS.');
+        console.error('[saveProduct] Supabase upsert returned no data for the updated product. This might indicate an RLS issue or an unexpected Supabase behavior.');
         showError('Failed to retrieve updated product data from Supabase. Please try again.');
         throw new Error('No data returned after product upsert.');
       }
       
-      console.log('[saveProduct] Data received from Supabase:', updatedProductData);
+      console.log('[saveProduct] Data received from Supabase:', JSON.stringify(updatedProductData, null, 2));
 
       if (updatedProductData) {
         setProducts(prev => {
