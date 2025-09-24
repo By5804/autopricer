@@ -10,7 +10,6 @@ export interface Product {
   item_info_group_id?: number;
   item_info_id: number;
   isActive: boolean;
-  proposedPrice?: number; // New field
 }
 
 export interface ProductStatus extends Product {
