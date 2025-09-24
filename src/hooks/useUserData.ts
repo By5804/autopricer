@@ -449,32 +449,6 @@ const useUserData = () => {
     }
   }, [user, updateProductsWithResults, addLog]);
 
-  const updateProductMinMaxPrice = async (productId: number, type: 'min' | 'max', value: number) => {
-    if (!user) return false;
-    try {
-      const columnToUpdate = type === 'min' ? 'min_price' : 'max_price';
-      const { error } = await supabase
-        .from('user_products')
-        .update({ [columnToUpdate]: value, updated_at: new Date().toISOString() })
-        .eq('user_id', user.id)
-        .eq('product_id', productId);
-
-      if (error) throw error;
-
-      setProducts(prev => prev.map(p =>
-        p.product_id === productId
-          ? { ...p, [type === 'min' ? 'minPrice' : 'maxPrice']: value, status: 'idle', message: 'logic.waiting' } // Reset status after update
-          : p
-      ));
-      showSuccess(`Product ID ${productId}: ${type === 'min' ? 'Minimum' : 'Maximum'} price updated to Rp ${value.toLocaleString('id-ID')}.`);
-      return true;
-    } catch (error) {
-      console.error(`Error updating product ${type} price for ID ${productId}:`, error);
-      showError(`Failed to update product ${type} price.`);
-      return false;
-    }
-  };
-
   return {
     config,
     products,
@@ -487,7 +461,6 @@ const useUserData = () => {
     batchUpdateProductStatus,
     updateProductsWithResults,
     processSingleProduct,
-    updateProductMinMaxPrice, // Expose the new function
   };
 };
 
