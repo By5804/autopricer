@@ -24,6 +24,7 @@ export const Products = () => {
     deleteProduct, 
     batchUpdateProductStatus,
     processSingleProduct, 
+    updateProductMinMaxPrice, // Get the new function
   } = useUserData();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
@@ -197,6 +198,7 @@ export const Products = () => {
                             sortConfig={sortConfig} 
                             onActiveChange={handleActiveChange}
                             onRetry={processSingleProduct} 
+                            onOverrideMinMax={updateProductMinMaxPrice} // Pass the new function
                           />
                         </AccordionContent>
                       </AccordionItem>
