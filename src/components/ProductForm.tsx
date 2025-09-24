@@ -32,6 +32,10 @@ const productSchema = z.object({
     z.coerce.number().optional()
   ),
   item_info_id: z.coerce.number().min(1, 'Item Info ID is required.'),
+  proposedPrice: z.preprocess( // New field
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.coerce.number().min(0, 'Proposed price cannot be negative.').optional()
+  ),
 }).refine(data => data.maxPrice >= data.minPrice, {
   message: 'Max price must be greater than or equal to min price.',
   path: ["maxPrice"],
@@ -64,6 +68,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       item_type_id: 0,
       item_info_group_id: undefined,
       item_info_id: 0,
+      proposedPrice: undefined, // New field
     },
   });
 
@@ -77,6 +82,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         category: productToEdit.category === null ? '' : productToEdit.category,
         priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
         item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
+        proposedPrice: productToEdit.proposedPrice === null ? undefined : productToEdit.proposedPrice, // New field
         // modalPrice is not directly from DB in Product interface, so no need to clean here
       };
       form.reset(cleanedProduct);
@@ -93,6 +99,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         item_type_id: 0,
         item_info_group_id: undefined,
         item_info_id: 0,
+        proposedPrice: undefined, // New field
       });
     }
   }, [productToEdit, form.reset]);
@@ -243,6 +250,16 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
             <FormItem>
               <FormLabel>Item Info ID</FormLabel>
               <FormControl><Input type="number" placeholder="e.g., 30" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="proposedPrice" render={({ field }) => (
+            <FormItem className="md:col-span-2">
+              <FormLabel>Proposed Price (Optional)</FormLabel>
+              <FormControl><Input type="number" placeholder="e.g., 450000 (Overrides automatic pricing)" {...field} /></FormControl>
+              <FormDescription>
+                If set, this price will be used instead of automatic calculation, respecting min/max price.
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )} />

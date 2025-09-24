@@ -23,7 +23,8 @@ const translations: Record<string, string> = {
   "logic.updateFail": "Update failed: {{errorMessage}}",
   "logic.scrapeFail": "Scrape failed: {{errorMessage}}",
   "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
-  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
+  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
+  "logic.manualPriceSet": "Price manually set to Rp {{newPrice}}.", // New translation
 };
 
 export const formatMessage = (key: string, params?: Record<string, string | number | undefined>): string => {

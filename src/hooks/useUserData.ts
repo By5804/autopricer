@@ -175,6 +175,7 @@ const useUserData = () => {
               item_info_group_id: p.item_info_group_id,
               item_info_id: p.item_info_id,
               isActive: p.is_active,
+              proposedPrice: p.proposed_price, // New field
               status: 'idle',
               message: 'logic.waiting',
             };
@@ -272,6 +273,7 @@ const useUserData = () => {
         item_info_group_id: product.item_info_group_id,
         item_info_id: product.item_info_id,
         is_active: existingProduct ? existingProduct.isActive : true,
+        proposed_price: product.proposedPrice, // New field
         updated_at: new Date().toISOString(),
       };
       
@@ -313,6 +315,7 @@ const useUserData = () => {
             item_info_group_id: updatedProductData.item_info_group_id,
             item_info_id: updatedProductData.item_info_id,
             isActive: updatedProductData.is_active,
+            proposedPrice: updatedProductData.proposed_price, // New field
             status: 'idle', // Reset status after save
             message: 'logic.waiting', // Reset message
           };
