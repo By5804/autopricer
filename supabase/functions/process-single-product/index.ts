@@ -77,13 +77,25 @@ async function processProductLogic(supabaseAdmin, config, product) {
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
   const startTime = Date.now();
 
-  let resultPayload;
-  const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
-  const whitelistedStores = whitelist 
-      ? whitelist.split(',').map(name => name.trim().toLowerCase()) 
-      : [];
+  // Declare all result-related variables with default values
+  let myPrice = null;
+  let myStock = null;
+  let mySoldCount = null;
+  let competitorPrice = null;
+  let competitorStoreName = null;
+  let competitorStock = null;
+  let competitorSoldCount = null;
+  let newPrice = null;
+  let message = '';
+  let messageParams = {};
+  let status = 'idle';
 
   try {
+    const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
+    const whitelistedStores = whitelist 
+        ? whitelist.split(',').map(name => name.trim().toLowerCase()) 
+        : [];
+
     // Validate API keys
     if (!api_key || !secret_key) {
       throw new Error('API Key or Secret Key is missing in user configuration.');
@@ -110,7 +122,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
     url.search = new URLSearchParams(stringifiedParams).toString();
     console.log(`[process-single-product] ${product.name} - Before scrape fetch. Time: ${Date.now() - startTime}ms`);
 
-    const competitorResponse = await fetchWithTimeout(url.toString(), {}, 12000); // 12 seconds timeout
+    const competitorResponse = await fetchWithTimeout(url.toString(), {}, 12000);
     console.log(`[process-single-product] ${product.name} - After scrape fetch. Status: ${competitorResponse.status}. Time: ${Date.now() - startTime}ms`);
     if (!competitorResponse.ok) {
       let errorData = { message: `Scrape gagal dengan status ${competitorResponse.status}` };
@@ -127,24 +139,10 @@ async function processProductLogic(supabaseAdmin, config, product) {
     } catch (jsonError) {
       throw new Error(`Gagal mengurai respons scrape sebagai JSON: ${jsonError.message}`);
     }
-    // Ensure competitorList is an array
     const competitorList = competitorData?.data?.data || [];
     console.log(`[process-single-product] ${product.name} - After parsing scrape data. Competitors: ${competitorList?.length || 0}. Time: ${Date.now() - startTime}ms`);
 
-    // Initialize my product data with nulls
-    let myPrice = null;
-    let myStock = null;
-    let mySoldCount = null;
-    let competitorPrice = null;
-    let competitorStoreName = null;
-    let competitorStock = null;
-    let competitorSoldCount = null;
-
-    let newPrice = null;
     let potentialNewPrice = null;
-    let message = '';
-    let messageParams = {};
-    let status: ProductStatus['status'] = 'idle'; // Default status
 
     if (!Array.isArray(competitorList) || competitorList.length === 0) {
       message = 'logic.noCompetitor';
@@ -162,13 +160,10 @@ async function processProductLogic(supabaseAdmin, config, product) {
       }
 
       if (myProductIndex === -1) {
-        // My product is not in the top 10.
         message = 'logic.outOfStock';
         status = 'error';
         console.log(`[process-single-product] ${product.name} - My product not in top 10.`);
-        // No price update logic here, as it's out of top 10.
       } else if (myProductIndex === 0) {
-          // Existing logic for being the cheapest
           const p2 = competitorList[1];
           if (p2) {
               competitorPrice = p2.price;
@@ -177,18 +172,18 @@ async function processProductLogic(supabaseAdmin, config, product) {
               competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
           }
           if (!p2) {
-              if (myPrice !== null && myPrice < product.maxPrice) { // Use myPrice here
+              if (myPrice !== null && myPrice < product.maxPrice) {
                   potentialNewPrice = product.maxPrice;
                   message = 'logic.onlySellerSetMax';
               } else {
                   message = 'logic.onlySellerAtMax';
               }
           } else {
-              const priceDiff = p2.price - (myPrice ?? 0); // Use myPrice here, handle null
+              const priceDiff = p2.price - (myPrice ?? 0);
               if (priceDiff > (undercutValue + 90)) {
                   let tempPrice = roundPrice(p2.price - undercutValue);
                   tempPrice = Math.min(tempPrice, product.maxPrice);
-                  if (myPrice !== null && tempPrice !== myPrice) { // Use myPrice here
+                  if (myPrice !== null && tempPrice !== myPrice) {
                       potentialNewPrice = tempPrice;
                       message = 'logic.maximizeProfit';
                   } else {
@@ -198,9 +193,8 @@ async function processProductLogic(supabaseAdmin, config, product) {
                   message = 'logic.cheapestOptimal';
               }
           }
-          status = 'success'; // Default to success if logic runs
+          status = 'success';
       } else {
-          // Existing logic for not being the cheapest
           const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
           if (target) {
               potentialNewPrice = roundPrice(target.price - undercutValue);
@@ -218,53 +212,29 @@ async function processProductLogic(supabaseAdmin, config, product) {
               competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
               message = 'logic.holdPrice';
           }
-          status = 'success'; // Default to success if logic runs
+          status = 'success';
       }
 
-      // Price validation and update logic
       if (potentialNewPrice !== null && potentialNewPrice !== myPrice) {
           if (potentialNewPrice < product.minPrice) {
               message = 'logic.violatesMinPrice';
               messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
-              potentialNewPrice = null;
-              status = 'error'; // Set status to error if price violates min
+              status = 'error';
           } else if (potentialNewPrice > product.maxPrice) {
               message = 'logic.violatesMaxPrice';
               messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
-              potentialNewPrice = null;
-              status = 'error'; // Set status to error if price violates max
+              status = 'error';
           } else {
               newPrice = potentialNewPrice;
           }
       }
-    } // End of else (if competitorList is not empty)
+    }
 
     console.log(`[process-single-product] ${product.name} - Calculated new price: ${newPrice}, message: ${message}. Time: ${Date.now() - startTime}ms`);
 
-    resultPayload = { 
-      ...product, 
-      myPrice, 
-      myStock,
-      mySoldCount,
-      competitorPrice, 
-      competitorStoreName, 
-      competitorStock, 
-      competitorSoldCount,
-      newPrice, 
-      message, 
-      messageParams, 
-      status: status // Use the determined status
-    };
-
     if (newPrice !== null) {
       console.log(`[process-single-product] ${product.name} - Before price update. Time: ${Date.now() - startTime}ms`);
-      const key = await crypto.subtle.importKey(
-        "raw", 
-        new TextEncoder().encode(secret_key), 
-        { name: "HMAC", hash: { name: "SHA-256" } }, 
-        false, 
-        ["sign"]
-      );
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
       const nonce = Math.floor(Date.now() / 1000).toString();
       const updatePayload = { product_id: product.product_id, new_price: newPrice };
       const updateUrl = "https://tokoku-gateway.itemku.com/api/product/price/update";
@@ -274,7 +244,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
           body: JSON.stringify(updatePayload)
-      }, 12000); // 12 seconds timeout
+      }, 12000);
       let updateData;
       try {
         updateData = await updateResponse.json();
@@ -284,15 +254,35 @@ async function processProductLogic(supabaseAdmin, config, product) {
       console.log(`[process-single-product] ${product.name} - After price update. OK=${updateResponse.ok}, Data=${JSON.stringify(updateData)}. Time: ${Date.now() - startTime}ms`);
 
       if (updateResponse.ok && updateData.success) {
-          resultPayload = { ...resultPayload, status: 'updated', message: 'logic.updateSuccess', messageParams: { newPrice: newPrice.toLocaleString('id-ID') } };
+          status = 'updated';
+          message = 'logic.updateSuccess';
+          messageParams = { newPrice: newPrice.toLocaleString('id-ID') };
       } else {
-          resultPayload = { ...resultPayload, status: 'error', message: 'logic.updateFail', messageParams: { errorMessage: updateData?.message || `Update gagal dengan status ${updateResponse.status}` } };
+          status = 'error';
+          message = 'logic.updateFail';
+          messageParams = { errorMessage: updateData?.message || `Update gagal dengan status ${updateResponse.status}` };
       }
     }
   } catch (error) {
     console.error(`[process-single-product] Error processing product ${product.name} (ID: ${product.product_id}):`, error);
-    resultPayload = { ...product, status: 'error', message: 'logic.scrapeFail', messageParams: { errorMessage: error.message } };
+    status = 'error';
+    message = 'logic.scrapeFail';
+    messageParams = { errorMessage: error.message };
   } finally {
+    const resultPayload = {
+      ...product,
+      myPrice,
+      myStock,
+      mySoldCount,
+      competitorPrice,
+      competitorStoreName,
+      competitorStock,
+      competitorSoldCount,
+      newPrice,
+      message,
+      messageParams,
+      status,
+    };
     console.log(`[process-single-product] END Processing product: ${product.name} (ID: ${product.product_id}). Total Time: ${Date.now() - startTime}ms`);
     return resultPayload;
   }
@@ -312,14 +302,13 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'user_id dan product_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Mengubah kueri untuk mengambil semua kolom dari user_configurations
     const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
 
     if (configError || !config) {
       console.error(`[process-single-product] Configuration not found for user ${user_id}:`, configError);
       return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    console.log(`[process-single-product] Configuration found for user ${user_id}. Discord Webhook URL: ${config.discord_webhook_url ? 'Set' : 'Not Set'}`);
+    console.log(`[process-single-product] Configuration found for user ${user_id}.`);
 
     const { data: productData, error: productDataError } = await supabaseAdmin
       .from('user_products')
@@ -348,7 +337,6 @@ serve(async (req) => {
       isActive: productData.is_active,
     });
 
-    // Insert log for the single product process
     const { error: logError } = await supabaseAdmin.from('product_logs').insert({ user_id, product_id: result.product_id, log_data: result });
     if (logError) console.error(`[process-single-product] Error inserting log for product ${result.product_id}:`, logError);
     else console.log(`[process-single-product] Successfully inserted log for product ${result.product_id}.`);
