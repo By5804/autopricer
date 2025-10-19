@@ -31,11 +31,12 @@ const useUserData = () => {
     discord_webhook_url: null,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<{ message: string; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const addLog = useCallback((message: string) => {
-    setLogs(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev].slice(0, 100));
+  const addLog = useCallback((message: string, createdAt: string) => {
+    const formattedMessage = `${new Date(createdAt).toLocaleTimeString()}: ${message}`;
+    setLogs(prev => [{ message: formattedMessage, createdAt }, ...prev].slice(0, 100));
   }, []);
 
   const updateProductsWithResults = useCallback((results: ProductStatus[]) => {
@@ -78,11 +79,17 @@ const useUserData = () => {
         return currentProducts;
       }
 
-      const formattedLogs = (existingLogs || []).map(log => {
-        const logData = log.log_data as ProductStatus;
-        const timestamp = new Date(log.created_at).toLocaleTimeString();
-        return `${timestamp}: ${logData.name}: ${formatMessage(logData.message, logData.messageParams)}`;
-      });
+      const formattedLogs = (existingLogs || [])
+        .filter(log => (log.log_data as ProductStatus).message !== 'logic.cheapestOptimal')
+        .map(log => {
+          const logData = log.log_data as ProductStatus;
+          const timestamp = new Date(log.created_at).toLocaleTimeString();
+          const message = `${timestamp}: ${logData.name}: ${formatMessage(logData.message, logData.messageParams)}`;
+          return {
+            message,
+            createdAt: log.created_at,
+          };
+        });
       setLogs(formattedLogs);
 
       const latestLogsByProduct = new Map<number, ProductStatus>();
@@ -212,8 +219,10 @@ const useUserData = () => {
           const newLogData = payload.new.log_data as ProductStatus;
           if (newLogData) {
             updateProductsWithResults([newLogData]);
-            const timestamp = new Date(payload.new.created_at).toLocaleTimeString();
-            addLog(`${timestamp}: ${newLogData.name}: ${formatMessage(newLogData.message, newLogData.messageParams)}`);
+            if (newLogData.message !== 'logic.cheapestOptimal') {
+              const message = `${newLogData.name}: ${formatMessage(newLogData.message, newLogData.messageParams)}`;
+              addLog(message, payload.new.created_at);
+            }
           }
         }
       )
@@ -398,21 +407,23 @@ const useUserData = () => {
         setProducts(prev => prev.map(p => 
           p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
         ));
-        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`);
+        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`, new Date().toISOString());
         return;
       }
 
       if (data && data.result) {
         updateProductsWithResults([data.result]);
         showSuccess(`Produk ${data.result.name} berhasil diproses.`);
-        const timestamp = new Date().toLocaleTimeString();
-        addLog(`${timestamp}: ${data.result.name}: ${formatMessage(data.result.message, data.result.messageParams)}`);
+        if (data.result.message !== 'logic.cheapestOptimal') {
+          const message = `${data.result.name}: ${formatMessage(data.result.message, data.result.messageParams)}`;
+          addLog(message, new Date().toISOString());
+        }
       } else {
         showError('Respon tidak valid dari server.');
         setProducts(prev => prev.map(p => 
           p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: 'Respon tidak valid' } } : p
         ));
-        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage: 'Respon tidak valid dari server.' })}`);
+        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage: 'Respon tidak valid dari server.' })}`, new Date().toISOString());
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -420,7 +431,7 @@ const useUserData = () => {
       setProducts(prev => prev.map(p => 
         p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
       ));
-      addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`);
+      addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`, new Date().toISOString());
     }
   }, [user, updateProductsWithResults, addLog]);
 

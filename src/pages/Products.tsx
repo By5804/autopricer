@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -12,14 +12,14 @@ import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { NextRunCountdown } from '@/components/NextRunCountdown'; // Import the new component
+import { NextRunCountdown } from '@/components/NextRunCountdown';
 
 export const Products = () => {
   const { 
     products, 
     loading: userDataLoading, 
     logs,
-    config, // Get config from useUserData
+    config,
     saveProduct, 
     deleteProduct, 
     batchUpdateProductStatus,
@@ -56,22 +56,6 @@ export const Products = () => {
     await saveProduct(data);
     setIsFormDialogOpen(false);
     setEditingProduct(null);
-  };
-
-  const handleImportSubmit = (productsToImport: Omit<Product, 'isActive'>[]) => {
-    if (productsToImport.length === 0) {
-      showError("No products found in the provided JSON.");
-      return;
-    }
-    
-    const importPromises = productsToImport.map(product => saveProduct(product));
-    
-    Promise.all(importPromises).then(() => {
-      showSuccess(`${productsToImport.length} products imported successfully.`);
-      setIsFormDialogOpen(false);
-    }).catch(() => {
-      showError("An error occurred while importing products.");
-    });
   };
 
   const handleSort = (key: keyof ProductStatus) => {
@@ -236,11 +220,32 @@ export const Products = () => {
           </CardHeader>
           <CardContent>
             <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
-              {logs.map((log, index) => (
-                <div key={index} className="text-sm font-mono py-0.5 border-b border-border/50 last:border-b-0">
-                  {log}
-                </div>
-              ))}
+              {logs.map((log, index) => {
+                const prevLog = logs[index + 1];
+                const TIME_GAP_SECONDS = 10;
+                let showSeparator = false;
+
+                if (prevLog) {
+                  const currentTimestamp = new Date(log.createdAt);
+                  const prevTimestamp = new Date(prevLog.createdAt);
+                  const diffInSeconds = (currentTimestamp.getTime() - prevTimestamp.getTime()) / 1000;
+                  
+                  if (diffInSeconds > TIME_GAP_SECONDS) {
+                    showSeparator = true;
+                  }
+                }
+
+                return (
+                  <Fragment key={index}>
+                    {showSeparator && (
+                      <div className="my-2 border-t border-dashed border-border"></div>
+                    )}
+                    <div className="text-sm font-mono py-0.5">
+                      {log.message}
+                    </div>
+                  </Fragment>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
