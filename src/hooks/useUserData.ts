@@ -14,7 +14,7 @@ export interface UserConfig {
   is_cron_active: boolean;
   cron_interval_minutes: number;
   cron_last_run_at: string | null;
-  discord_webhook_url: string | null; // New field
+  discord_webhook_url: string | null;
 }
 
 const useUserData = () => {
@@ -28,7 +28,7 @@ const useUserData = () => {
     is_cron_active: false,
     cron_interval_minutes: 15,
     cron_last_run_at: null,
-    discord_webhook_url: null, // Initialize new field
+    discord_webhook_url: null,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
@@ -43,7 +43,6 @@ const useUserData = () => {
       const resultsMap = new Map(results.map(r => [r.product_id, r]));
       return prev.map(p => {
         const newResult = resultsMap.get(p.product_id);
-        // Only update status-related fields from the log result
         return newResult ? { 
           ...p, 
           status: newResult.status,
@@ -76,7 +75,7 @@ const useUserData = () => {
 
       if (error) {
         console.error('Error loading existing logs:', error);
-        return currentProducts; // Return original products on error
+        return currentProducts;
       }
 
       const formattedLogs = (existingLogs || []).map(log => {
@@ -94,7 +93,6 @@ const useUserData = () => {
         }
       });
 
-      // Merge log data into current products, only for status-related fields
       const productsWithLogs = currentProducts.map(product => {
         const latestLog = latestLogsByProduct.get(product.product_id);
         if (latestLog) {
@@ -119,7 +117,7 @@ const useUserData = () => {
 
     } catch (error) {
       console.error('Error in loadExistingLogs:', error);
-      return currentProducts; // Return original products on error
+      return currentProducts;
     }
   }, []);
 
@@ -134,7 +132,6 @@ const useUserData = () => {
 
     const loadUserData = async () => {
       try {
-        // Fetch config
         const { data: configData, error: configError } = await supabase
           .from('user_configurations')
           .select('*')
@@ -149,7 +146,6 @@ const useUserData = () => {
           setConfig(configData);
         }
 
-        // Fetch products (source of truth for product configuration)
         const { data: productsData, error: productsError } = await supabase
           .from('user_products')
           .select('*')
@@ -175,13 +171,13 @@ const useUserData = () => {
               item_info_group_id: p.item_info_group_id,
               item_info_id: p.item_info_id,
               isActive: p.is_active,
+              cron_interval_minutes: p.cron_interval_minutes,
               status: 'idle',
               message: 'logic.waiting',
             };
           });
         }
 
-        // Now, enrich these products with the latest log data (status, messages, current prices)
         const productsWithLogs = await loadExistingLogs(user.id, initialProducts);
         setProducts(productsWithLogs);
 
@@ -196,12 +192,11 @@ const useUserData = () => {
 
     loadUserData();
 
-    // Start polling for config updates (e.g., cron_last_run_at)
     configPollingInterval = setInterval(() => {
       if (isMounted) {
-        loadUserData(); // Re-fetch all data, including config
+        loadUserData();
       }
-    }, 30000); // Poll every 30 seconds
+    }, 30000);
 
     const channel = supabase
       .channel(`product-updates-${user.id}`)
@@ -256,8 +251,6 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'>) => {
     if (!user) return false;
     try {
-      console.log('[useUserData] saveProduct - Product data received:', JSON.stringify(product, null, 2));
-
       const existingProduct = products.find(p => p.product_id === product.product_id);
       const productData = {
         user_id: user.id,
@@ -272,18 +265,16 @@ const useUserData = () => {
         item_info_group_id: product.item_info_group_id,
         item_info_id: product.item_info_id,
         is_active: existingProduct ? existingProduct.isActive : true,
+        cron_interval_minutes: product.cron_interval_minutes,
         updated_at: new Date().toISOString(),
       };
       
-      console.log('[useUserData] saveProduct - Payload sent to Supabase:', JSON.stringify(productData, null, 2));
-
       const { data: upsertResult, error: upsertError } = await supabase
         .from('user_products')
         .upsert(productData, { onConflict: 'user_id,product_id' })
         .select('*');
 
       if (upsertError) {
-        console.error('[useUserData] saveProduct - Supabase upsert error:', upsertError);
         showError(`Failed to save product: ${upsertError.message}`);
         throw upsertError;
       }
@@ -291,13 +282,10 @@ const useUserData = () => {
       const updatedProductData = upsertResult?.[0];
 
       if (!updatedProductData) {
-        console.error('[useUserData] saveProduct - Supabase upsert returned no data for the updated product. This might indicate an RLS issue or an unexpected Supabase behavior.');
-        showError('Failed to retrieve updated product data from Supabase. Please try again.');
+        showError('Failed to retrieve updated product data from Supabase.');
         throw new Error('No data returned after product upsert.');
       }
       
-      console.log('[useUserData] saveProduct - Data received from Supabase:', JSON.stringify(updatedProductData, null, 2));
-
       if (updatedProductData) {
         setProducts(prev => {
           const existingIndex = prev.findIndex(p => p.product_id === updatedProductData.product_id);
@@ -305,16 +293,17 @@ const useUserData = () => {
             product_id: updatedProductData.product_id,
             name: updatedProductData.name,
             category: updatedProductData.category,
-            minPrice: updatedProductData.min_price, // Corrected from updatedToData.max_price
-            maxPrice: updatedProductData.max_price, // Corrected from updatedToData.max_price
+            minPrice: updatedProductData.min_price,
+            maxPrice: updatedProductData.max_price,
             priceUndercutAmount: updatedProductData.undercut_amount,
             game_id: updatedProductData.game_id,
             item_type_id: updatedProductData.item_type_id,
             item_info_group_id: updatedProductData.item_info_group_id,
             item_info_id: updatedProductData.item_info_id,
             isActive: updatedProductData.is_active,
-            status: 'idle', // Reset status after save
-            message: 'logic.waiting', // Reset message
+            cron_interval_minutes: updatedProductData.cron_interval_minutes,
+            status: 'idle',
+            message: 'logic.waiting',
           };
 
           if (existingIndex > -1) {
@@ -328,7 +317,7 @@ const useUserData = () => {
       }
       return true;
     } catch (error) {
-      console.error('[useUserData] saveProduct - Error saving product:', error);
+      console.error('Error saving product:', error);
       return false;
     }
   };
@@ -353,7 +342,6 @@ const useUserData = () => {
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
     if (!user || updates.length === 0) {
-      console.warn('[useUserData] Batch update skipped: No user or no updates provided.');
       return false;
     }
     try {
@@ -366,34 +354,25 @@ const useUserData = () => {
           })
           .eq('user_id', user.id)
           .eq('product_id', productId)
-          .then(response => {
-            if (response.error) {
-              console.error(`[useUserData] Supabase update error for product ${productId}:`, response.error);
-            }
-            return response;
-          })
       );
 
       const results = await Promise.all(updatePromises);
-
       const errors = results.filter(result => result.error);
       if (errors.length > 0) {
-        errors.forEach(errorResult => console.error('[useUserData] Batch update failed for some products:', errorResult.error));
-        throw new Error('Some product updates failed. Check console for details.');
+        throw new Error('Some product updates failed.');
       }
 
       setProducts(prev => {
         const updatesMap = new Map(updates.map(u => [u.productId, u.isActive]));
-        const newProducts = prev.map(p =>
+        return prev.map(p =>
           updatesMap.has(p.product_id)
             ? { ...p, isActive: updatesMap.get(p.product_id)! }
             : p
         );
-        return newProducts;
       });
       return true;
     } catch (error) {
-      console.error('[useUserData] Error in batchUpdateProductStatus:', error);
+      console.error('Error in batchUpdateProductStatus:', error);
       return false;
     }
   };
@@ -414,13 +393,11 @@ const useUserData = () => {
       });
 
       if (error) {
-        console.error('Error invoking process-single-product:', error);
         const errorMessage = error.message || 'Unknown error';
         showError(`Gagal memproses produk: ${errorMessage}`);
         setProducts(prev => prev.map(p => 
           p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
         ));
-        // Tambahkan ke log lokal untuk umpan balik instan
         addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`);
         return;
       }
@@ -428,7 +405,6 @@ const useUserData = () => {
       if (data && data.result) {
         updateProductsWithResults([data.result]);
         showSuccess(`Produk ${data.result.name} berhasil diproses.`);
-        // Tambahkan ke log lokal untuk umpan balik instan
         const timestamp = new Date().toLocaleTimeString();
         addLog(`${timestamp}: ${data.result.name}: ${formatMessage(data.result.message, data.result.messageParams)}`);
       } else {
@@ -439,7 +415,6 @@ const useUserData = () => {
         addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage: 'Respon tidak valid dari server.' })}`);
       }
     } catch (error) {
-      console.error('Exception during processSingleProduct:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       showError(`Terjadi kesalahan saat memproses produk: ${errorMessage}`);
       setProducts(prev => prev.map(p => 

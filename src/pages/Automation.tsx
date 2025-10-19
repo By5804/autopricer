@@ -67,18 +67,18 @@ export const Automation = () => {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cron-interval">Check Interval (minutes)</Label>
+            <Label htmlFor="cron-interval">Default Check Interval (minutes)</Label>
             <Input 
               id="cron-interval" 
               type="number" 
-              min="5" 
+              min="1" 
               placeholder="e.g., 15" 
               value={cronInterval} 
-              onChange={(e) => setCronInterval(Math.max(5, Number(e.target.value)))} 
+              onChange={(e) => setCronInterval(Math.max(1, Number(e.target.value)))} 
               disabled={!isCronActive}
             />
             <p className="text-sm text-muted-foreground">
-              How often the automatic check should run. Minimum is 5 minutes.
+              How often the automatic check should run. Minimum is 1 minute. Can be overridden per product.
             </p>
           </div>
            <div className="flex items-center text-sm text-muted-foreground">

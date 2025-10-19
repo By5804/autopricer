@@ -6,7 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
-// Translations object (copied from src/utils/translations.ts)
+// Kunci pesan yang tidak akan dikirim ke Discord
+const NO_ACTION_MESSAGES = new Set([
+  "logic.cheapestOptimal",
+  "logic.onlySellerAtMax",
+  "logic.holdPrice",
+  "logic.allCompetitorsTooCheap",
+  "logic.violatesMinPrice",
+  "logic.violatesMaxPrice",
+  "logic.holdAtMax"
+]);
+
+// ... (fungsi formatMessage dan translations tetap sama)
 const translations: Record<string, string> = {
   "logic.waiting": "Waiting for process to start.",
   "logic.checking": "Checking price...",
@@ -35,7 +46,6 @@ const translations: Record<string, string> = {
   "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
 };
 
-// formatMessage function
 const formatMessage = (key: string, params?: Record<string, string | number | undefined>): string => {
   let message = translations[key] || key;
   if (params) {
@@ -48,25 +58,18 @@ const formatMessage = (key: string, params?: Record<string, string | number | un
   return message;
 };
 
-// Helper function to send Discord notification for multiple messages
 async function sendDiscordNotification(webhookUrl: string, messages: string[]) {
   if (!webhookUrl || messages.length === 0) {
     console.log(`[Discord Webhook] Tidak mengirim notifikasi: webhookUrl kosong atau tidak ada pesan.`);
     return;
   }
 
-  const description = messages.join('\n'); // Join all messages with newlines
-
-  // Format current time to GMT+7 (Asia/Jakarta)
+  const description = messages.join('\n');
   const now = new Date();
   const options: Intl.DateTimeFormatOptions = {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false, // Use 24-hour format
-    timeZone: 'Asia/Jakarta' // GMT+7
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Asia/Jakarta'
   };
   const formatter = new Intl.DateTimeFormat('id-ID', options);
   const formattedDateTime = formatter.format(now);
@@ -74,30 +77,22 @@ async function sendDiscordNotification(webhookUrl: string, messages: string[]) {
   const payload = {
     username: "Itemku Pricer Bot",
     avatar_url: "https://www.itemku.com/assets/images/favicon.png",
-    embeds: [
-      {
-        title: `Laporan Otomatisasi Harga - ${formattedDateTime}`, // Menggunakan waktu yang diformat GMT+7
-        description: description,
-        color: 3447003, // Blue color for general report
-        timestamp: now.toISOString(), // Timestamp ISO 8601 tetap untuk Discord agar menampilkan di zona waktu pengguna
-      },
-    ],
+    embeds: [{
+      title: `Laporan Otomatisasi Harga - ${formattedDateTime}`,
+      description: description,
+      color: 3447003,
+      timestamp: now.toISOString(),
+    }],
   };
 
   try {
-    console.log(`[Discord Webhook] Mengirim notifikasi ke: ${webhookUrl}`);
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-
     if (!response.ok) {
       console.error(`[Discord Webhook] Gagal mengirim notifikasi: ${response.status} ${response.statusText}`);
-      const errorText = await response.text();
-      console.error(`[Discord Webhook] Respon error dari Discord: ${errorText}`);
     } else {
       console.log(`[Discord Webhook] Notifikasi berhasil dikirim.`);
     }
@@ -117,103 +112,78 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Panggil fungsi RPC untuk mendapatkan pengguna yang sudah jatuh tempo
-    const { data: usersToProcess, error } = await supabaseAdmin.rpc('get_due_users');
+    const { data: productsToProcess, error } = await supabaseAdmin.rpc('get_due_products');
 
     if (error) throw error;
 
-    if (!usersToProcess || usersToProcess.length === 0) {
-      console.log("Penjadwal berjalan, tidak ada pengguna yang perlu diproses.");
-      return new Response(JSON.stringify({ message: "Tidak ada pengguna yang perlu diproses." }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
+    if (!productsToProcess || productsToProcess.length === 0) {
+      console.log("Penjadwal berjalan, tidak ada produk yang perlu diproses.");
+      return new Response(JSON.stringify({ message: "Tidak ada produk yang perlu diproses." }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
       });
     }
 
-    for (const user of usersToProcess) {
-      console.log(`Memperbarui timestamp dan memicu proses untuk pengguna: ${user.user_id}`);
-      
-      // 1. Perbarui timestamp segera untuk mencegah pemicuan ulang
-      const { error: updateError } = await supabaseAdmin
-        .from('user_configurations')
-        .update({ cron_last_run_at: new Date().toISOString() })
-        .eq('user_id', user.user_id);
+    // Perbarui timestamp terlebih dahulu untuk semua produk yang akan diproses
+    const now = new Date().toISOString();
+    const productIdsToUpdate = productsToProcess.map(p => p.product_id);
+    const { error: updateError } = await supabaseAdmin
+      .from('user_products')
+      .update({ cron_last_run_at: now })
+      .in('product_id', productIdsToUpdate);
 
-      if (updateError) {
-        console.error(`Gagal memperbarui timestamp untuk pengguna ${user.user_id}:`, updateError);
-        continue; // Lanjut ke pengguna berikutnya
-      }
+    if (updateError) {
+      console.error(`Gagal memperbarui timestamp untuk produk:`, updateError);
+    }
 
-      // 2. Ambil semua produk aktif untuk pengguna ini
-      const { data: userProducts, error: productsError } = await supabaseAdmin
-        .from('user_products')
-        .select('product_id')
-        .eq('user_id', user.user_id)
-        .eq('is_active', true);
+    const processingPromises = productsToProcess.map(product =>
+      supabaseAdmin.functions.invoke('process-single-product', {
+        body: { user_id: product.user_id, product_id: product.product_id },
+      })
+    );
 
-      if (productsError) {
-        console.error(`Gagal mengambil produk untuk pengguna ${user.user_id}:`, productsError);
-        continue; // Lanjut ke pengguna berikutnya
-      }
+    const results = await Promise.allSettled(processingPromises);
+    const notificationsByUser = new Map<string, { webhookUrl: string, messages: string[] }>();
 
-      if (userProducts && userProducts.length > 0) {
-        console.log(`Memicu pemrosesan untuk ${userProducts.length} produk pengguna ${user.user_id}.`);
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const { user_id } = productsToProcess[i];
+
+      if (result.status === 'fulfilled' && result.value.data && result.value.data.result) {
+        const productResult = result.value.data.result;
         
-        const productProcessingPromises = userProducts.map(product => 
-          supabaseAdmin.functions.invoke('process-single-product', {
-            body: { user_id: user.user_id, product_id: product.product_id },
-          })
-        );
+        // Filter pesan yang tidak perlu dinotifikasikan
+        if (!NO_ACTION_MESSAGES.has(productResult.message)) {
+          if (!notificationsByUser.has(user_id)) {
+            const { data: config } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
+            if (config?.discord_webhook_url) {
+              notificationsByUser.set(user_id, { webhookUrl: config.discord_webhook_url, messages: [] });
+            }
+          }
 
-        const results = await Promise.allSettled(productProcessingPromises);
-        const discordMessages: string[] = [];
-
-        for (const result of results) {
-          if (result.status === 'fulfilled' && result.value.data && result.value.data.result) {
-            const productResult = result.value.data.result;
+          const userData = notificationsByUser.get(user_id);
+          if (userData) {
             const message = formatMessage(productResult.message, productResult.messageParams);
-            // Tambahkan timestamp lokal ke setiap pesan untuk konsistensi dengan contoh yang diberikan
             const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
-            discordMessages.push(`${localTime}: ${productResult.name}: ${message}`);
-          } else if (result.status === 'rejected') {
-            console.error(`Error memanggil process-single-product:`, result.reason);
-            const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
-            discordMessages.push(`${localTime}: Error memproses produk: ${result.reason.message || 'Unknown error'}`);
-          } else {
-            console.error(`Unexpected result structure:`, result);
-            const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
-            discordMessages.push(`${localTime}: Error memproses produk: Respon tidak valid.`);
+            userData.messages.push(`${localTime}: ${productResult.name}: ${message}`);
           }
         }
-
-        // Ambil discord_webhook_url untuk pengguna ini
-        const { data: userConfig, error: userConfigError } = await supabaseAdmin
-          .from('user_configurations')
-          .select('discord_webhook_url')
-          .eq('user_id', user.user_id)
-          .single();
-
-        if (userConfigError || !userConfig?.discord_webhook_url) {
-          console.warn(`[Discord Webhook] Tidak dapat menemukan URL webhook Discord untuk pengguna ${user.user_id}.`);
-        } else {
-          await sendDiscordNotification(userConfig.discord_webhook_url, discordMessages);
-        }
-
-      } else {
-        console.log(`Tidak ada produk aktif untuk pengguna ${user.user_id}.`);
+      } else if (result.status === 'rejected') {
+        console.error(`Error memanggil process-single-product:`, result.reason);
       }
     }
 
-    return new Response(JSON.stringify({ message: `Memicu pemrosesan untuk pengguna yang jatuh tempo.` }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    for (const [_, userData] of notificationsByUser) {
+      await sendDiscordNotification(userData.webhookUrl, userData.messages);
+    }
+
+    return new Response(JSON.stringify({ message: `Memproses ${productsToProcess.length} produk.` }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
     });
 
   } catch (error) {
     console.error("Error pada penjadwal:", error);
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500,
     });
   }
 });

@@ -32,6 +32,10 @@ const productSchema = z.object({
     z.coerce.number().optional()
   ),
   item_info_id: z.coerce.number().min(1, 'Item Info ID is required.'),
+  cron_interval_minutes: z.preprocess(
+    (val) => (val === "" || val === null || val === 0 ? undefined : val),
+    z.coerce.number().min(1).optional()
+  ),
 }).refine(data => data.maxPrice >= data.minPrice, {
   message: 'Max price must be greater than or equal to min price.',
   path: ["maxPrice"],
@@ -64,6 +68,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       item_type_id: 0,
       item_info_group_id: undefined,
       item_info_id: 0,
+      cron_interval_minutes: undefined,
     },
   });
 
@@ -71,13 +76,12 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
 
   useEffect(() => {
     if (productToEdit) {
-      // Clean productToEdit data to replace nulls with undefined or empty strings
       const cleanedProduct = {
         ...productToEdit,
         category: productToEdit.category === null ? '' : productToEdit.category,
         priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
         item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
-        // modalPrice is not directly from DB in Product interface, so no need to clean here
+        cron_interval_minutes: productToEdit.cron_interval_minutes === null ? undefined : productToEdit.cron_interval_minutes,
       };
       form.reset(cleanedProduct);
     } else {
@@ -93,6 +97,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         item_type_id: 0,
         item_info_group_id: undefined,
         item_info_id: 0,
+        cron_interval_minutes: undefined,
       });
     }
   }, [productToEdit, form.reset]);
@@ -114,7 +119,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
   }, [modalPrice, form.setValue]);
 
   const handleFormSubmit = (data: ProductFormData) => {
-    console.log('[ProductForm] Submitting product data:', JSON.stringify(data, null, 2)); // Log data before submission
+    console.log('[ProductForm] Submitting product data:', JSON.stringify(data, null, 2));
     onSubmit(data as Omit<Product, 'isActive'>);
   };
 
@@ -135,7 +140,6 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       form.setValue('item_info_group_id', productData.item_info_group_id || undefined);
       form.setValue('item_info_id', productData.item_info_id || 0);
       
-      // Clear JSON input after successful auto-fill
       setJsonInput('');
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Invalid JSON format or missing product data.');
@@ -243,6 +247,13 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
             <FormItem>
               <FormLabel>Item Info ID</FormLabel>
               <FormControl><Input type="number" placeholder="e.g., 30" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="cron_interval_minutes" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Custom Interval (minutes)</FormLabel>
+              <FormControl><Input type="number" min="1" placeholder="Uses default if empty" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
