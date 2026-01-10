@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Pencil, Trash2, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
-import { cn } from "@/utils/utils";
+import { cn } from "@/lib/utils";
 import type { Product, ProductStatus } from "@/types";
 import { formatMessage } from "@/utils/translations";
 
