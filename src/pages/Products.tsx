@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -80,7 +80,6 @@ export const Products = () => {
   };
 
   const handleFormSubmit = async (data: Omit<Product, 'isActive'>) => {
-    // Gabungkan ID database dari editingProduct jika sedang dalam mode edit
     const submissionData = editingProduct ? { ...data, id: editingProduct.id } : data;
     
     const success = await saveProduct(submissionData);
@@ -276,7 +275,7 @@ export const Products = () => {
                 }
 
                 return (
-                  <Fragment key={index}>
+                  <div key={index}>
                     {showSeparator && (
                       <div className="my-2 border-t border-dashed border-border/50"></div>
                     )}
@@ -289,7 +288,7 @@ export const Products = () => {
                       </span>
                       <span>{formatMessage(log.message, log.messageParams)}</span>
                     </div>
-                  </Fragment>
+                  </div>
                 );
               })}
             </div>
