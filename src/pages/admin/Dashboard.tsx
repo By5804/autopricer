@@ -30,7 +30,7 @@ const AdminDashboard = () => {
       try {
         // Fetch semua produk terlebih dahulu (termasuk yang tidak aktif)
         const { data: allProducts, error: productsError } = await supabase
-          .from('user_products')
+          .from('products') // Menggunakan nama tabel yang benar
           .select('user_id, category, is_active');
 
         console.log('All products (including inactive):', allProducts); // Debug log

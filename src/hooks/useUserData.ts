@@ -154,7 +154,7 @@ const useUserData = () => {
         }
 
         const { data: productsData, error: productsError } = await supabase
-          .from('user_products')
+          .from('products') // Menggunakan nama tabel yang benar
           .select('*, price_war_counter, price_war_last_reset_at') // Select new tracking fields
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
@@ -281,7 +281,7 @@ const useUserData = () => {
       };
       
       const { data: upsertResult, error: upsertError } = await supabase
-        .from('user_products')
+        .from('products') // Menggunakan nama tabel yang benar
         .upsert(productData, { onConflict: 'user_id,product_id' })
         .select('*, price_war_counter, price_war_last_reset_at'); // Select all fields including tracking fields
 
@@ -338,7 +338,7 @@ const useUserData = () => {
     if (!user) return false;
     try {
       const { error } = await supabase
-        .from('user_products')
+        .from('products') // Menggunakan nama tabel yang benar
         .delete()
         .eq('user_id', user.id)
         .eq('product_id', productId);
@@ -359,7 +359,7 @@ const useUserData = () => {
     try {
       const updatePromises = updates.map(({ productId, isActive }) =>
         supabase
-          .from('user_products')
+          .from('products') // Menggunakan nama tabel yang benar
           .update({
             is_active: isActive,
             updated_at: new Date().toISOString()
