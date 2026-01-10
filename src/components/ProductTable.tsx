@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Pencil, Trash2, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 import type { Product, ProductStatus } from "@/types";
 import { formatMessage } from "@/utils/translations";
 
@@ -14,7 +14,7 @@ interface ProductTableProps {
   onSort: (key: keyof ProductStatus) => void;
   sortConfig: { key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null;
   onActiveChange: (productId: number, isActive: boolean) => void;
-  onRetry: (productId: number) => void; // New prop for retry
+  onRetry: (productId: number) => void; 
 }
 
 export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, onActiveChange, onRetry }: ProductTableProps) {
@@ -32,12 +32,10 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
     }
   };
 
-  // Memperbarui formatNumber untuk menangani null dan undefined
   const formatNumber = (num?: number | null) => {
     return num != null ? num.toLocaleString('id-ID') : '-';
   };
 
-  // Memperbarui formatPrice untuk menangani null dan undefined
   const formatPrice = (num?: number | null) => {
     return num != null ? `Rp ${num.toLocaleString('id-ID')}` : '-';
   };
@@ -62,9 +60,6 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
           </TableHead>
           <TableHead className="text-right group cursor-pointer select-none" onClick={() => onSort('myStock')}>
             My Stock {renderSortIcon('myStock')}
-          </TableHead>
-          <TableHead className="text-right group cursor-pointer select-none" onClick={() => onSort('mySoldCount')}>
-            My Sold {renderSortIcon('mySoldCount')}
           </TableHead>
           <TableHead className="text-right group cursor-pointer select-none" onClick={() => onSort('myPrice')}>
             My Price {renderSortIcon('myPrice')}
@@ -101,7 +96,6 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
               </TableCell>
               <TableCell className="font-medium">{product.name}</TableCell>
               <TableCell className="text-right">{formatNumber(product.myStock)}</TableCell>
-              <TableCell className="text-right">{formatNumber(product.mySoldCount)}</TableCell>
               <TableCell className="text-right font-semibold">
                 {formatPrice(product.newPrice || product.myPrice)}
               </TableCell>
