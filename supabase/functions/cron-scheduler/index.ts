@@ -76,35 +76,46 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    const { data: productsToProcess, error } = await supabaseAdmin.rpc('get_due_products');
+    // Ambil produk yang perlu diproses
+    const { data: productsToProcess, error } = await supabaseAdmin
+      .from('products')
+      .select('user_id, product_id, cron_last_run_at, cron_interval_minutes')
+      .eq('is_active', true);
 
     if (error) throw error;
 
-    if (!productsToProcess || productsToProcess.length === 0) {
+    // Filter produk berdasarkan interval (logika sederhana)
+    const now = new Date();
+    const filteredProducts = (productsToProcess || []).filter(p => {
+      if (!p.cron_last_run_at) return true;
+      const lastRun = new Date(p.cron_last_run_at);
+      const interval = p.cron_interval_minutes || 15;
+      return (now.getTime() - lastRun.getTime()) >= (interval * 60 * 1000);
+    });
+
+    if (filteredProducts.length === 0) {
       return new Response(JSON.stringify({ message: "Tidak ada produk yang perlu diproses." }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
       });
     }
 
-    const now = new Date().toISOString();
-    const productIdsToUpdate = productsToProcess.map(p => p.product_id);
-    const userIdsToUpdate = [...new Set(productsToProcess.map(p => p.user_id))];
+    const timestamp = now.toISOString();
+    const productIdsToUpdate = filteredProducts.map(p => p.product_id);
+    const userIdsToUpdate = [...new Set(filteredProducts.map(p => p.user_id))];
 
-    // Perbarui timestamp produk terlebih dahulu
-    const { error: productUpdateError } = await supabaseAdmin
-      .from('user_products')
-      .update({ cron_last_run_at: now })
+    // Perbarui timestamp produk
+    await supabaseAdmin
+      .from('products')
+      .update({ cron_last_run_at: timestamp })
       .in('product_id', productIdsToUpdate);
-    if (productUpdateError) console.error(`Gagal memperbarui timestamp untuk produk:`, productUpdateError);
 
     // Perbarui timestamp konfigurasi pengguna
-    const { error: userUpdateError } = await supabaseAdmin
-      .from('user_configurations')
-      .update({ cron_last_run_at: now })
+    await supabaseAdmin
+      .from('configurations')
+      .update({ last_cron_run: timestamp })
       .in('user_id', userIdsToUpdate);
-    if (userUpdateError) console.error(`Gagal memperbarui timestamp untuk pengguna:`, userUpdateError);
 
-    const processingPromises = productsToProcess.map(product =>
+    const processingPromises = filteredProducts.map(product =>
       supabaseAdmin.functions.invoke('process-single-product', {
         body: { user_id: product.user_id, product_id: product.product_id },
       })
@@ -115,17 +126,15 @@ serve(async (req) => {
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      const { user_id } = productsToProcess[i];
+      const { user_id } = filteredProducts[i];
 
       if (result.status === 'fulfilled' && result.value.data && result.value.data.result) {
         const productResult = result.value.data.result;
-        
-        // Exclude messages that indicate no action or optimal price
         const isNoActionMessage = NO_ACTION_MESSAGES.has(productResult.message);
 
         if (!isNoActionMessage) {
           if (!notificationsByUser.has(user_id)) {
-            const { data: config } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
+            const { data: config } = await supabaseAdmin.from('configurations').select('discord_webhook_url').eq('user_id', user_id).single();
             if (config?.discord_webhook_url) {
               notificationsByUser.set(user_id, { webhookUrl: config.discord_webhook_url, messages: [] });
             }
@@ -133,13 +142,11 @@ serve(async (req) => {
 
           const userData = notificationsByUser.get(user_id);
           if (userData) {
-            const message = formatMessage(productResult.message, productResult.messageParams);
+            const msg = formatMessage(productResult.message, productResult.messageParams);
             const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
-            userData.messages.push(`${localTime}: ${productResult.name}: ${message}`);
+            userData.messages.push(`${localTime}: ${productResult.name}: ${msg}`);
           }
         }
-      } else if (result.status === 'rejected') {
-        console.error(`Error memanggil process-single-product:`, result.reason);
       }
     }
 
@@ -147,7 +154,7 @@ serve(async (req) => {
       await sendDiscordNotification(userData.webhookUrl, userData.messages);
     }
 
-    return new Response(JSON.stringify({ message: `Memproses ${productsToProcess.length} produk.` }), {
+    return new Response(JSON.stringify({ message: `Memproses ${filteredProducts.length} produk.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
     });
 
