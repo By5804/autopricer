@@ -165,7 +165,6 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'> & { id?: number }) => {
     if (!user) return false;
     try {
-      // Cari produk yang sudah ada berdasarkan product_id (Itemku ID)
       const existingProduct = products.find(p => p.product_id === product.product_id);
       
       const productData: any = {
@@ -187,18 +186,20 @@ const useUserData = () => {
         updated_at: new Date().toISOString()
       };
 
-      // Pastikan kita menyertakan ID database (primary key) agar Supabase melakukan UPDATE
-      // Gunakan ID dari parameter jika ada, jika tidak gunakan ID dari produk yang sudah ditemukan
+      // Tentukan target konflik berdasarkan data yang tersedia
+      let conflictTarget = 'user_id,product_id';
+      
       if (product.id) {
         productData.id = product.id;
+        conflictTarget = 'id';
       } else if (existingProduct) {
         productData.id = existingProduct.id;
+        conflictTarget = 'id';
       }
 
-      // Gunakan onConflict untuk menangani kasus di mana ID database tidak diketahui tetapi product_id sama
       const { error } = await supabase
         .from('user_products')
-        .upsert(productData, { onConflict: 'user_id,product_id' });
+        .upsert(productData, { onConflict: conflictTarget });
 
       if (error) throw error;
       return true;
