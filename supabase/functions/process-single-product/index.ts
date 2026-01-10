@@ -148,11 +148,18 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           priceWarCounter += 1;
         }
 
-        if (priceWarCounter >= price_war_trigger_count) {
+        if (priceWarCounter >= price_war_trigger_count && rivalProduct) {
           isWarMode = true;
-          newPrice = roundPrice(rivalProduct.price - warUndercutValue);
+          // Calculate undercut from rival price, but floor it at minPrice
+          const proposedWarPrice = roundPrice(rivalProduct.price - warUndercutValue);
+          newPrice = Math.max(minPrice, proposedWarPrice);
+          
           message = 'logic.priceWarDetected';
-          messageParams = { rivalStoreName, minPrice: minPrice.toLocaleString('id-ID') };
+          messageParams = { 
+            rivalStoreName: rivalProduct.seller?.shop_name, 
+            minPrice: minPrice.toLocaleString('id-ID'),
+            newPrice: newPrice.toLocaleString('id-ID')
+          };
           status = 'updated'; 
           
           competitorPrice = rivalProduct.price;
@@ -220,8 +227,13 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const upData = await upRes.json();
         if (upRes.ok && upData.success) {
           status = 'updated';
-          message = (status === 'updated' && message === 'logic.priceWarDetected') ? message : 'logic.updateSuccess';
-          messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
+          // Ensure we keep the price war message if that was the trigger
+          if (isWarMode) {
+            message = 'logic.priceWarDetected';
+          } else {
+            message = 'logic.updateSuccess';
+            messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
+          }
         } else {
           status = 'error';
           message = 'logic.updateFail';
