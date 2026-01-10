@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Switch } from '@/components/ui/switch';
 import { showError, showSuccess } from '@/utils/toast';
 import useUserData from '@/hooks/useUserData';
-import { Clock, Save } from 'lucide-react';
+import { Clock, Save, ShieldAlert } from 'lucide-react';
 
 export const Configuration = () => {
   const { config, saveConfig } = useUserData();
@@ -79,7 +79,7 @@ export const Configuration = () => {
           </div>
           <div className="space-y-2">
             <Label htmlFor="whitelist">Whitelisted Stores</Label>
-            <Textarea id="whitelist" value={whitelist} onChange={(e) => setWhitelist(e.target.value)} />
+            <Textarea id="whitelist" value={whitelist} onChange={(e) => setWhitelist(e.target.value)} placeholder="Toko A, Toko B (Pisahkan dengan koma)" />
           </div>
         </CardContent>
         <CardFooter className="flex justify-end gap-2">
@@ -91,14 +91,14 @@ export const Configuration = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5" /> Automation & Trigger Settings</CardTitle>
-          <CardDescription>Configure background sync interval and master switch.</CardDescription>
+          <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5" /> Automation & Price War Settings</CardTitle>
+          <CardDescription>Configure background sync and defensive triggers.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/20">
             <div className="space-y-0.5">
               <Label className="text-base">Master Automation Status</Label>
-              <p className="text-sm text-muted-foreground">Aktifkan untuk mengizinkan pengecekan harga otomatis di latar belakang.</p>
+              <p className="text-sm text-muted-foreground">Aktifkan untuk mengizinkan pengecekan harga otomatis.</p>
             </div>
             <Switch checked={isCronActive} onCheckedChange={setIsCronActive} />
           </div>
@@ -113,17 +113,38 @@ export const Configuration = () => {
                 value={cronInterval} 
                 onChange={(e) => setCronInterval(Number(e.target.value))} 
               />
-              <p className="text-xs text-muted-foreground">Bot akan mengecek ulang setiap {cronInterval} menit.</p>
+              <p className="text-xs text-muted-foreground">Interval pengecekan otomatis seluruh produk.</p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="trigger-count">Price War Trigger Count</Label>
-              <Input 
-                id="trigger-count" 
-                type="number" 
-                value={triggerCount} 
-                onChange={(e) => setTriggerCount(Number(e.target.value))} 
-              />
-              <p className="text-xs text-muted-foreground">Berapa kali rival undercut sebelum memicu banting harga.</p>
+            
+            <div className="space-y-4 p-4 border rounded-lg bg-red-50/30 dark:bg-red-950/10 border-red-100 dark:border-red-900">
+              <div className="flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold mb-2">
+                <ShieldAlert className="h-4 w-4" />
+                <span>Price War Detection</span>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="trigger-count">Trigger Count (times)</Label>
+                  <Input 
+                    id="trigger-count" 
+                    type="number" 
+                    value={triggerCount} 
+                    onChange={(e) => setTriggerCount(Number(e.target.value))} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="trigger-hours">Within Duration (hours)</Label>
+                  <Input 
+                    id="trigger-hours" 
+                    type="number" 
+                    step="0.5"
+                    value={triggerHours} 
+                    onChange={(e) => setTriggerHours(Number(e.target.value))} 
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground italic">
+                Jika rival memotong harga sebanyak <strong>{triggerCount} kali</strong> dalam <strong>{triggerHours} jam</strong>, bot akan banting harga ke batas minimum secara otomatis.
+              </p>
             </div>
           </div>
         </CardContent>
