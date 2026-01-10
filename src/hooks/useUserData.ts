@@ -14,7 +14,6 @@ export interface UserConfig {
   is_cron_active: boolean;
   cron_interval: number;
   last_cron_run: string | null;
-  discord_webhook_url: string | null;
 }
 
 const useUserData = () => {
@@ -28,7 +27,6 @@ const useUserData = () => {
     is_cron_active: false,
     cron_interval: 15,
     last_cron_run: null,
-    discord_webhook_url: null,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
   const [logs, setLogs] = useState<{ message: string; createdAt: string }[]>([]);
@@ -64,26 +62,22 @@ const useUserData = () => {
 
   const loadExistingLogs = useCallback(async (userId: string, currentProducts: ProductStatus[]) => {
     try {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      
       const { data: existingLogs, error } = await supabase
         .from('logs')
         .select('message, created_at')
         .eq('user_id', userId)
-        .gte('created_at', oneHourAgo)
         .order('created_at', { ascending: false })
         .limit(100);
 
       if (error) {
-        console.error('Error loading existing logs:', error);
+        console.error('Error loading logs:', error);
         return currentProducts;
       }
 
-      const formattedLogs = (existingLogs || []).map(log => ({
+      setLogs((existingLogs || []).map(log => ({
         message: log.message,
         createdAt: log.created_at,
-      }));
-      setLogs(formattedLogs);
+      })));
 
       return currentProducts;
     } catch (error) {
@@ -99,7 +93,6 @@ const useUserData = () => {
     }
 
     let isMounted = true;
-    let configPollingInterval: ReturnType<typeof setInterval> | undefined;
 
     const loadUserData = async () => {
       try {
@@ -111,9 +104,7 @@ const useUserData = () => {
 
         if (!isMounted) return;
 
-        if (configError && configError.code !== 'PGRST116') {
-          console.error('Error loading config:', configError);
-        } else if (configData) {
+        if (configData) {
           setConfig(configData);
         }
 
@@ -126,10 +117,8 @@ const useUserData = () => {
         if (!isMounted) return;
 
         let initialProducts: ProductStatus[] = [];
-        if (productsError) {
-          console.error('Error loading products:', productsError);
-        } else {
-          initialProducts = (productsData || []).map(p => ({
+        if (productsData) {
+          initialProducts = productsData.map(p => ({
             product_id: p.product_id,
             name: p.name,
             category: p.category,
@@ -148,50 +137,28 @@ const useUserData = () => {
           }));
         }
 
-        const productsWithLogs = await loadExistingLogs(user.id, initialProducts);
-        setProducts(productsWithLogs);
+        await loadExistingLogs(user.id, initialProducts);
+        setProducts(initialProducts);
 
       } catch (error) {
         console.error('Error loading user data:', error);
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
     loadUserData();
 
-    configPollingInterval = setInterval(() => {
-      if (isMounted) {
-        loadUserData();
-      }
-    }, 30000);
-
     const channel = supabase
-      .channel(`product-updates-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'logs',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          if (payload.new.message) {
-             addLog(payload.new.message, payload.new.created_at);
-          }
-        }
+      .channel(`db-changes-${user.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'logs', filter: `user_id=eq.${user.id}` }, 
+        (payload) => addLog(payload.new.message, payload.new.created_at)
       )
       .subscribe();
 
     return () => {
       isMounted = false;
       supabase.removeChannel(channel);
-      if (configPollingInterval) {
-        clearInterval(configPollingInterval);
-      }
     };
   }, [user, addLog, loadExistingLogs]);
 
@@ -204,7 +171,7 @@ const useUserData = () => {
           user_id: user.id,
           ...newConfig,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        });
       
       if (error) throw error;
       setConfig(prev => ({ ...prev, ...newConfig }));
@@ -234,47 +201,42 @@ const useUserData = () => {
         is_active: existingProduct ? existingProduct.isActive : true,
         cron_interval_minutes: product.cron_interval_minutes,
         rival_store_name: product.rivalStoreName || null,
-        updated_at: new Date().toISOString(),
       };
       
-      const { data: upsertResult, error: upsertError } = await supabase
+      const { data, error } = await supabase
         .from('products')
-        .upsert(productData, { onConflict: 'user_id,product_id' })
-        .select('*');
+        .upsert(productData)
+        .select()
+        .single();
 
-      if (upsertError) {
-        showError(`Failed to save product: ${upsertError.message}`);
-        throw upsertError;
-      }
+      if (error) throw error;
       
-      if (upsertResult?.[0]) {
-        const updated = upsertResult[0];
+      if (data) {
         setProducts(prev => {
-          const existingIndex = prev.findIndex(p => p.product_id === updated.product_id);
-          const newStatus: ProductStatus = {
-            product_id: updated.product_id,
-            name: updated.name,
-            category: updated.category,
-            minPrice: updated.min_price,
-            maxPrice: updated.max_price,
-            priceUndercutAmount: updated.undercut_amount,
-            game_id: updated.game_id,
-            item_type_id: updated.item_type_id,
-            item_info_group_id: updated.item_info_group_id,
-            item_info_id: updated.item_info_id,
-            isActive: updated.is_active,
-            cron_interval_minutes: updated.cron_interval_minutes,
-            rivalStoreName: updated.rival_store_name,
+          const index = prev.findIndex(p => p.product_id === data.product_id);
+          const newProd: ProductStatus = {
+            product_id: data.product_id,
+            name: data.name,
+            category: data.category,
+            minPrice: data.min_price,
+            maxPrice: data.max_price,
+            priceUndercutAmount: data.undercut_amount,
+            game_id: data.game_id,
+            item_type_id: data.item_type_id,
+            item_info_group_id: data.item_info_group_id,
+            item_info_id: data.item_info_id,
+            isActive: data.is_active,
+            cron_interval_minutes: data.cron_interval_minutes,
+            rivalStoreName: data.rival_store_name,
             status: 'idle',
             message: 'logic.waiting',
           };
-
-          if (existingIndex > -1) {
+          if (index > -1) {
             const list = [...prev];
-            list[existingIndex] = { ...list[existingIndex], ...newStatus };
+            list[index] = newProd;
             return list;
           }
-          return [newStatus, ...prev];
+          return [newProd, ...prev];
         });
       }
       return true;
@@ -303,73 +265,42 @@ const useUserData = () => {
   };
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
-    if (!user || updates.length === 0) return false;
+    if (!user) return false;
     try {
-      const promises = updates.map(({ productId, isActive }) =>
-        supabase
+      for (const update of updates) {
+        await supabase
           .from('products')
-          .update({ is_active: isActive, updated_at: new Date().toISOString() })
+          .update({ is_active: update.isActive })
           .eq('user_id', user.id)
-          .eq('product_id', productId)
-      );
-
-      const results = await Promise.all(promises);
-      if (results.some(r => r.error)) throw new Error('Some updates failed');
-
-      setProducts(prev => {
-        const map = new Map(updates.map(u => [u.productId, u.isActive]));
-        return prev.map(p => map.has(p.product_id) ? { ...p, isActive: map.get(p.product_id)! } : p);
-      });
+          .eq('product_id', update.productId);
+      }
+      setProducts(prev => prev.map(p => {
+        const up = updates.find(u => u.productId === p.product_id);
+        return up ? { ...p, isActive: up.isActive } : p;
+      }));
       return true;
     } catch (error) {
-      console.error('Error in batchUpdateProductStatus:', error);
+      console.error('Error batch updating status:', error);
       return false;
     }
   };
 
   const processSingleProduct = useCallback(async (productId: number) => {
-    if (!user) {
-      showError('Anda harus login untuk memproses produk.');
-      return;
-    }
-
-    setProducts(prev => prev.map(p => 
-      p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p
-    ));
-
+    if (!user) return;
+    setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p));
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
         body: { user_id: user.id, product_id: productId },
       });
-
       if (error) throw error;
-
-      if (data && data.result) {
-        updateProductsWithResults([data.result]);
-        showSuccess(`Produk ${data.result.name} berhasil diproses.`);
-      }
+      if (data?.result) updateProductsWithResults([data.result]);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      showError(`Gagal memproses: ${msg}`);
-      setProducts(prev => prev.map(p => 
-        p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p
-      ));
+      console.error('Process error:', error);
+      setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
     }
   }, [user, updateProductsWithResults]);
 
-  return {
-    config,
-    products,
-    loading,
-    logs,
-    addLog,
-    saveConfig,
-    saveProduct,
-    deleteProduct,
-    batchUpdateProductStatus,
-    updateProductsWithResults,
-    processSingleProduct,
-  };
+  return { config, products, loading, logs, saveConfig, saveProduct, deleteProduct, batchUpdateProductStatus, processSingleProduct };
 };
 
 export default useUserData;
