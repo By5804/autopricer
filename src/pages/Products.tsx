@@ -105,7 +105,8 @@ export const Products = () => {
   const handleExpandAll = () => setOpenCategories(sortedCategories);
   const handleCollapseAll = () => setOpenCategories([]);
 
-  const filteredLogs = logs.filter(log => log.message !== 'logic.cheapestOptimal');
+  // Menampilkan semua log tanpa filter
+  const allLogs = logs;
 
   if (userDataLoading) {
     return (
@@ -238,7 +239,7 @@ export const Products = () => {
         />
       )}
 
-      {filteredLogs.length > 0 && (
+      {allLogs.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Recent Activity Logs</CardTitle>
@@ -246,8 +247,8 @@ export const Products = () => {
           </CardHeader>
           <CardContent>
             <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
-              {filteredLogs.map((log, index) => {
-                const prevLog = filteredLogs[index + 1];
+              {allLogs.map((log, index) => {
+                const prevLog = allLogs[index + 1];
                 const TIME_GAP_SECONDS = 60;
                 let showSeparator = false;
 
