@@ -22,6 +22,12 @@ async function fetchWithTimeout(resource: string, options = {}, timeout = 12000)
   }
 }
 
+// Fungsi pembantu untuk mencari jumlah terjual di berbagai field
+const getSoldCount = (p: any) => {
+  if (!p) return 0;
+  return p.total_sold ?? p.item_sold_count ?? p.sold_count ?? p.sold ?? p.total_item_sold ?? 0;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -118,8 +124,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (myProduct) {
       myPrice = myProduct.price;
       myStock = myProduct.stock;
-      // Perbaikan My Sold: Itemku sering menyimpan di 'item_sold_count' atau 'total_sold'
-      mySoldCount = myProduct.item_sold_count ?? myProduct.total_sold ?? myProduct.sold_count ?? 0;
+      mySoldCount = getSoldCount(myProduct);
     }
 
     if (myIndex === -1) {
@@ -147,7 +152,6 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
 
         if (priceWarCounter >= price_war_trigger_count) {
           isWarMode = true;
-          // Gunakan nominal undercut khusus perang harga terhadap rival
           newPrice = roundPrice(rivalProduct.price - warUndercutValue);
           message = 'logic.priceWarDetected';
           messageParams = { rivalStoreName, minPrice: minPrice.toLocaleString('id-ID') };
@@ -155,6 +159,8 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           
           competitorPrice = rivalProduct.price;
           competitorStoreName = rivalProduct.seller?.shop_name;
+          competitorStock = rivalProduct.stock;
+          competitorSoldCount = getSoldCount(rivalProduct);
         }
       }
 
@@ -170,7 +176,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
             competitorPrice = p2.price;
             competitorStoreName = p2.seller?.shop_name;
             competitorStock = p2.stock;
-            competitorSoldCount = p2.item_sold_count ?? p2.total_sold ?? 0;
+            competitorSoldCount = getSoldCount(p2);
 
             if (p2.price - myPrice > undercutValue + 90) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
@@ -184,14 +190,14 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           competitorPrice = target.price;
           competitorStoreName = target.seller?.shop_name;
           competitorStock = target.stock;
-          competitorSoldCount = target.item_sold_count ?? target.total_sold ?? 0;
+          competitorSoldCount = getSoldCount(target);
         } else {
           message = 'logic.holdPrice';
           const p1 = competitorList[0];
           competitorPrice = p1.price;
           competitorStoreName = p1.seller?.shop_name;
           competitorStock = p1.stock;
-          competitorSoldCount = p1.item_sold_count ?? p1.total_sold ?? 0;
+          competitorSoldCount = getSoldCount(p1);
         }
         status = 'success';
       }
