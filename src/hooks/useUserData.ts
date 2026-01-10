@@ -46,7 +46,7 @@ const useUserData = () => {
   }, []);
 
   const mapDbToProductStatus = useCallback((p: any): ProductStatus => ({
-    id: p.id, // Ambil database ID
+    id: p.id,
     product_id: p.product_id,
     name: p.name,
     category: p.category,
@@ -119,7 +119,7 @@ const useUserData = () => {
         addLog(payload.new.log_data, payload.new.created_at);
       })
       .on('postgres_changes', { 
-        event: '*', // Monitor all changes to products
+        event: '*', 
         schema: 'public', 
         table: 'user_products', 
         filter: `user_id=eq.${user.id}` 
@@ -165,7 +165,7 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'> & { id?: number }) => {
     if (!user) return false;
     try {
-      // Cari produk yang sudah ada berdasarkan product_id jika id database tidak disediakan
+      // Cari produk yang sudah ada berdasarkan product_id (Itemku ID)
       const existingProduct = products.find(p => p.product_id === product.product_id);
       
       const productData: any = {
@@ -187,12 +187,19 @@ const useUserData = () => {
         updated_at: new Date().toISOString()
       };
 
-      // Jika ini adalah edit, sertakan ID database-nya agar Supabase melakukan UPDATE
+      // Pastikan kita menyertakan ID database (primary key) agar Supabase melakukan UPDATE
+      // Gunakan ID dari parameter jika ada, jika tidak gunakan ID dari produk yang sudah ditemukan
       if (product.id) {
         productData.id = product.id;
+      } else if (existingProduct) {
+        productData.id = existingProduct.id;
       }
 
-      const { error } = await supabase.from('user_products').upsert(productData);
+      // Gunakan onConflict untuk menangani kasus di mana ID database tidak diketahui tetapi product_id sama
+      const { error } = await supabase
+        .from('user_products')
+        .upsert(productData, { onConflict: 'user_id,product_id' });
+
       if (error) throw error;
       return true;
     } catch (e) { 

@@ -80,7 +80,10 @@ export const Products = () => {
   };
 
   const handleFormSubmit = async (data: Omit<Product, 'isActive'>) => {
-    const success = await saveProduct(data);
+    // Gabungkan ID database dari editingProduct jika sedang dalam mode edit
+    const submissionData = editingProduct ? { ...data, id: editingProduct.id } : data;
+    
+    const success = await saveProduct(submissionData);
     if (success) {
       showSuccess(editingProduct ? 'Product updated successfully.' : 'Product added successfully.');
       setIsFormDialogOpen(false);
