@@ -28,66 +28,53 @@ const AdminDashboard = () => {
     const fetchDashboardData = async () => {
       setLoading(true);
       try {
-        // Fetch semua produk terlebih dahulu (termasuk yang tidak aktif)
-        const { data: allProducts, error: productsError } = await supabase
-          .from('products') // Menggunakan nama tabel yang benar
+        const { data: allProducts } = await supabase
+          .from('user_products')
           .select('user_id, category, is_active');
 
-        console.log('All products (including inactive):', allProducts); // Debug log
-
-        if (productsError) throw productsError;
-
-        // Fetch semua pengguna (kecuali admin)
-        const { data: usersData, error: usersError } = await supabase
+        const { data: usersData } = await supabase
           .from('profiles')
           .select('*')
           .neq('role', 'admin')
           .order('created_at', { ascending: false });
 
-        console.log('Users data:', usersData); // Debug log
+        if (usersData) {
+          const usersWithStats = usersData.map(user => {
+            const userProducts = allProducts?.filter(product => product.user_id === user.id) || [];
+            const productCount = userProducts.length;
+            
+            const categories = userProducts
+              .map(p => p.category)
+              .filter(Boolean)
+              .filter((category, index, arr) => arr.indexOf(category) === index);
 
-        if (usersError) throw usersError;
+            return {
+              ...user,
+              product_count: productCount,
+              categories: categories as string[]
+            };
+          });
 
-        // Hitung statistik untuk setiap user
-        const usersWithStats = usersData.map(user => {
-          const userProducts = allProducts?.filter(product => product.user_id === user.id) || [];
-          const productCount = userProducts.length;
+          setUserStats(usersWithStats);
+
+          const totalUsers = usersWithStats.length;
+          const totalProducts = allProducts?.length || 0;
           
-          const categories = userProducts
-            .map(p => p.category)
+          const allCategories = allProducts
+            ?.map(p => p.category)
             .filter(Boolean)
-            .filter((category, index, arr) => arr.indexOf(category) === index);
+            .filter((category, index, arr) => arr.indexOf(category) === index) || [];
+          
+          const totalCategories = allCategories.length;
+          const activeUsers = usersWithStats.filter(user => user.is_enabled).length;
 
-          return {
-            ...user,
-            product_count: productCount,
-            categories
-          };
-        });
-
-        setUserStats(usersWithStats);
-
-        // Hitung statistik total
-        const totalUsers = usersWithStats.length;
-        const totalProducts = allProducts?.length || 0;
-        
-        const allCategories = allProducts
-          ?.map(p => p.category)
-          .filter(Boolean)
-          .filter((category, index, arr) => arr.indexOf(category) === index) || [];
-        
-        const totalCategories = allCategories.length;
-        const activeUsers = usersWithStats.filter(user => user.is_enabled).length;
-
-        console.log('Total stats:', { totalUsers, totalProducts, totalCategories, activeUsers }); // Debug log
-
-        setTotalStats({
-          totalUsers,
-          totalProducts,
-          totalCategories,
-          activeUsers
-        });
-
+          setTotalStats({
+            totalUsers,
+            totalProducts,
+            totalCategories,
+            activeUsers
+          });
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {
@@ -108,7 +95,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="p-8 space-y-8">
-      {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -117,12 +103,9 @@ const AdminDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalStats.totalUsers}</div>
-            <p className="text-xs text-muted-foreground">
-              {totalStats.activeUsers} active users
-            </p>
+            <p className="text-xs text-muted-foreground">{totalStats.activeUsers} active users</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Products</CardTitle>
@@ -130,12 +113,9 @@ const AdminDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalStats.totalProducts}</div>
-            <p className="text-xs text-muted-foreground">
-              All products (active + inactive)
-            </p>
+            <p className="text-xs text-muted-foreground">Across all users</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Categories</CardTitle>
@@ -143,12 +123,9 @@ const AdminDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalStats.totalCategories}</div>
-            <p className="text-xs text-muted-foreground">
-              Unique categories
-            </p>
+            <p className="text-xs text-muted-foreground">Unique categories</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Rate</CardTitle>
@@ -158,20 +135,15 @@ const AdminDashboard = () => {
             <div className="text-2xl font-bold">
               {totalStats.totalUsers > 0 ? Math.round((totalStats.activeUsers / totalStats.totalUsers) * 100) : 0}%
             </div>
-            <p className="text-xs text-muted-foreground">
-              Users enabled
-            </p>
+            <p className="text-xs text-muted-foreground">Users enabled</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Users Table */}
       <Card>
         <CardHeader>
           <CardTitle>User Statistics</CardTitle>
-          <CardDescription>
-            Detailed overview of users and their products
-          </CardDescription>
+          <CardDescription>Detailed overview of users and their products</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -198,23 +170,14 @@ const AdminDashboard = () => {
                       {user.is_enabled ? 'Enabled' : 'Disabled'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {user.product_count}
-                  </TableCell>
+                  <TableCell className="text-right font-semibold">{user.product_count}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {user.categories.slice(0, 3).map((category, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {category}
-                        </Badge>
+                        <Badge key={index} variant="outline" className="text-xs">{category}</Badge>
                       ))}
                       {user.categories.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{user.categories.length - 3} more
-                        </Badge>
-                      )}
-                      {user.categories.length === 0 && (
-                        <span className="text-sm text-muted-foreground">No categories</span>
+                        <Badge variant="outline" className="text-xs">+{user.categories.length - 3} more</Badge>
                       )}
                     </div>
                   </TableCell>

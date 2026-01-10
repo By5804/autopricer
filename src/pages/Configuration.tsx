@@ -4,7 +4,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, Upload } from 'lucide-react';
 import { showError, showSuccess } from '@/utils/toast';
 import useUserData from '@/hooks/useUserData';
 
@@ -14,8 +13,7 @@ export const Configuration = () => {
   const [secretKey, setSecretKey] = useState('');
   const [storeName, setStoreName] = useState('');
   const [whitelist, setWhitelist] = useState('');
-  const [priceUndercutAmount, setPriceUndercutAmount] = useState(10);
-  const importInputRef = React.useRef<HTMLInputElement>(null);
+  const [undercutAmount, setUndercutAmount] = useState(10);
 
   useEffect(() => {
     if (config) {
@@ -23,7 +21,7 @@ export const Configuration = () => {
       setSecretKey(config.secret_key || '');
       setStoreName(config.store_name || '');
       setWhitelist(config.whitelist || '');
-      setPriceUndercutAmount(config.price_undercut_amount || 10);
+      setUndercutAmount(config.undercut_amount || 10);
     }
   }, [config]);
 
@@ -33,7 +31,7 @@ export const Configuration = () => {
       secret_key: secretKey,
       store_name: storeName,
       whitelist: whitelist,
-      price_undercut_amount: priceUndercutAmount,
+      undercut_amount: undercutAmount,
     });
     if (success) showSuccess('Configuration saved successfully.');
     else showError('Failed to save configuration.');
@@ -54,7 +52,7 @@ export const Configuration = () => {
             </div>
             <div className="space-y-2">
               <Label htmlFor="undercut-amount">Global Undercut Amount</Label>
-              <Input id="undercut-amount" type="number" value={priceUndercutAmount} onChange={(e) => setPriceUndercutAmount(Number(e.target.value))} />
+              <Input id="undercut-amount" type="number" value={undercutAmount} onChange={(e) => setUndercutAmount(Number(e.target.value))} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="api-key">API Key</Label>

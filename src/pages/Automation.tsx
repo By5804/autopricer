@@ -17,21 +17,21 @@ export const Automation = () => {
   useEffect(() => {
     if (config) {
       setIsCronActive(config.is_cron_active || false);
-      setCronInterval(config.cron_interval || 15);
+      setCronInterval(config.cron_interval_minutes || 15);
     }
   }, [config]);
 
   const handleSave = async () => {
     const success = await saveConfig({
       is_cron_active: isCronActive,
-      cron_interval: cronInterval,
+      cron_interval_minutes: cronInterval,
     });
     if (success) showSuccess('Automation settings saved successfully.');
     else showError('Failed to save automation settings.');
   };
 
-  const lastRunText = config.last_cron_run
-    ? `${formatDistanceToNow(new Date(config.last_cron_run), { addSuffix: true })}`
+  const lastRunText = config.cron_last_run_at
+    ? `${formatDistanceToNow(new Date(config.cron_last_run_at), { addSuffix: true })}`
     : 'Never';
 
   return (

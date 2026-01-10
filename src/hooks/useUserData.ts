@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Product, ProductStatus } from '@/types';
-import { formatMessage } from '@/utils/translations';
 import { showError, showSuccess } from '@/utils/toast';
 
 export interface UserConfig {
@@ -10,10 +9,10 @@ export interface UserConfig {
   secret_key: string;
   store_name: string;
   whitelist: string;
-  price_undercut_amount: number;
+  undercut_amount: number;
   is_cron_active: boolean;
-  cron_interval: number;
-  last_cron_run: string | null;
+  cron_interval_minutes: number;
+  cron_last_run_at: string | null;
 }
 
 const useUserData = () => {
@@ -23,10 +22,10 @@ const useUserData = () => {
     secret_key: '',
     store_name: '',
     whitelist: '',
-    price_undercut_amount: 10,
+    undercut_amount: 10,
     is_cron_active: false,
-    cron_interval: 15,
-    last_cron_run: null,
+    cron_interval_minutes: 15,
+    cron_last_run_at: null,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
   const [logs, setLogs] = useState<{ message: string; createdAt: string }[]>([]);
@@ -60,32 +59,6 @@ const useUserData = () => {
     });
   }, []);
 
-  const loadExistingLogs = useCallback(async (userId: string, currentProducts: ProductStatus[]) => {
-    try {
-      const { data: existingLogs, error } = await supabase
-        .from('logs')
-        .select('message, created_at')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(100);
-
-      if (error) {
-        console.error('Error loading logs:', error);
-        return currentProducts;
-      }
-
-      setLogs((existingLogs || []).map(log => ({
-        message: log.message,
-        createdAt: log.created_at,
-      })));
-
-      return currentProducts;
-    } catch (error) {
-      console.error('Error in loadExistingLogs:', error);
-      return currentProducts;
-    }
-  }, []);
-
   useEffect(() => {
     if (!user) {
       setLoading(false);
@@ -96,8 +69,8 @@ const useUserData = () => {
 
     const loadUserData = async () => {
       try {
-        const { data: configData, error: configError } = await supabase
-          .from('configurations')
+        const { data: configData } = await supabase
+          .from('user_configurations')
           .select('*')
           .eq('user_id', user.id)
           .maybeSingle();
@@ -108,8 +81,8 @@ const useUserData = () => {
           setConfig(configData);
         }
 
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
+        const { data: productsData } = await supabase
+          .from('user_products')
           .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
@@ -137,7 +110,21 @@ const useUserData = () => {
           }));
         }
 
-        await loadExistingLogs(user.id, initialProducts);
+        // Load logs from product_logs
+        const { data: logsData } = await supabase
+          .from('product_logs')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (logsData && isMounted) {
+          setLogs(logsData.map(l => ({
+            message: l.log_data?.message || 'Activity log entry',
+            createdAt: l.created_at
+          })));
+        }
+
         setProducts(initialProducts);
 
       } catch (error) {
@@ -151,8 +138,8 @@ const useUserData = () => {
 
     const channel = supabase
       .channel(`db-changes-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'logs', filter: `user_id=eq.${user.id}` }, 
-        (payload) => addLog(payload.new.message, payload.new.created_at)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs', filter: `user_id=eq.${user.id}` }, 
+        (payload) => addLog(payload.new.log_data?.message || 'New activity', payload.new.created_at)
       )
       .subscribe();
 
@@ -160,13 +147,13 @@ const useUserData = () => {
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, [user, addLog, loadExistingLogs]);
+  }, [user, addLog]);
 
   const saveConfig = async (newConfig: Partial<UserConfig>) => {
     if (!user) return false;
     try {
       const { error } = await supabase
-        .from('configurations')
+        .from('user_configurations')
         .upsert({
           user_id: user.id,
           ...newConfig,
@@ -204,7 +191,7 @@ const useUserData = () => {
       };
       
       const { data, error } = await supabase
-        .from('products')
+        .from('user_products')
         .upsert(productData)
         .select()
         .single();
@@ -250,7 +237,7 @@ const useUserData = () => {
     if (!user) return false;
     try {
       const { error } = await supabase
-        .from('products')
+        .from('user_products')
         .delete()
         .eq('user_id', user.id)
         .eq('product_id', productId);
@@ -269,7 +256,7 @@ const useUserData = () => {
     try {
       for (const update of updates) {
         await supabase
-          .from('products')
+          .from('user_products')
           .update({ is_active: update.isActive })
           .eq('user_id', user.id)
           .eq('product_id', update.productId);
@@ -293,7 +280,7 @@ const useUserData = () => {
         body: { user_id: user.id, product_id: productId },
       });
       if (error) throw error;
-      if (data?.result) updateProductsWithResults([data.result]);
+      if (data) updateProductsWithResults([data]);
     } catch (error) {
       console.error('Process error:', error);
       setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
