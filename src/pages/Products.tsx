@@ -70,14 +70,24 @@ export const Products = () => {
 
   const handleDeleteProduct = async (productId: number) => {
     if (window.confirm('Are you sure you want to delete this product?')) {
-      await deleteProduct(productId);
+      const success = await deleteProduct(productId);
+      if (success) {
+        showSuccess('Product deleted successfully.');
+      } else {
+        showError('Failed to delete product.');
+      }
     }
   };
 
   const handleFormSubmit = async (data: Omit<Product, 'isActive'>) => {
-    await saveProduct(data);
-    setIsFormDialogOpen(false);
-    setEditingProduct(null);
+    const success = await saveProduct(data);
+    if (success) {
+      showSuccess(editingProduct ? 'Product updated successfully.' : 'Product added successfully.');
+      setIsFormDialogOpen(false);
+      setEditingProduct(null);
+    } else {
+      showError('Failed to save product details.');
+    }
   };
 
   const handleSort = (key: keyof ProductStatus) => {
@@ -106,7 +116,6 @@ export const Products = () => {
   const handleExpandAll = () => setOpenCategories(sortedCategories);
   const handleCollapseAll = () => setOpenCategories([]);
 
-  // Sembunyikan log yang statusnya 'cheapestOptimal'
   const allLogs = logs.filter(log => log.message !== 'logic.cheapestOptimal');
 
   if (userDataLoading) {
@@ -183,7 +192,7 @@ export const Products = () => {
                       if (valB === null || valB === undefined) return -1;
                       let comparison = 0;
                       if (typeof valA === 'number' && typeof valB === 'number') {
-                        comparison = valA - valB;
+                        comparison = (valA as number) - (valB as number);
                       } else {
                         comparison = String(valA).localeCompare(String(valB));
                       }

@@ -1,11 +1,12 @@
 export interface Product {
+  id?: number; // Database primary key
   name: string;
   category?: string;
   product_id: number;
   minPrice: number;
   maxPrice: number;
   priceUndercutAmount?: number;
-  price_war_undercut_amount?: number; // Field baru
+  price_war_undercut_amount?: number;
   game_id: number;
   item_type_id: number;
   item_info_group_id?: number;

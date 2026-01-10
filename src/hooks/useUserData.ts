@@ -41,11 +41,12 @@ const useUserData = () => {
     setLogs(prev => {
       const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (exists) return prev;
-      return [newLog, ...prev].slice(0, 200); // Simpan hingga 200 di state
+      return [newLog, ...prev].slice(0, 200);
     });
   }, []);
 
   const mapDbToProductStatus = useCallback((p: any): ProductStatus => ({
+    id: p.id, // Ambil database ID
     product_id: p.product_id,
     name: p.name,
     category: p.category,
@@ -65,11 +66,11 @@ const useUserData = () => {
     messageParams: p.last_message_params || {},
     myPrice: p.last_my_price,
     myStock: p.last_my_stock,
-    mySoldCount: p.last_my_sold_count,
+    mySoldCount: (p.last_my_sold_count as any) || 0,
     competitorPrice: p.last_competitor_price,
     competitorStoreName: p.last_competitor_store_name,
     competitorStock: p.last_competitor_stock,
-    competitorSoldCount: p.last_competitor_sold_count,
+    competitorSoldCount: (p.last_competitor_sold_count as any) || 0,
     newPrice: p.proposed_price,
   }), []);
 
@@ -89,7 +90,6 @@ const useUserData = () => {
           setProducts(productsData.map(mapDbToProductStatus));
         }
 
-        // Meningkatkan limit menjadi 200 entri
         const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200);
         if (logsData) {
           setLogs(logsData.map(l => ({
@@ -119,14 +119,24 @@ const useUserData = () => {
         addLog(payload.new.log_data, payload.new.created_at);
       })
       .on('postgres_changes', { 
-        event: 'UPDATE', 
+        event: '*', // Monitor all changes to products
         schema: 'public', 
         table: 'user_products', 
         filter: `user_id=eq.${user.id}` 
       }, (payload) => {
-        setProducts(prev => prev.map(p => 
-          p.product_id === payload.new.product_id ? mapDbToProductStatus(payload.new) : p
-        ));
+        if (payload.eventType === 'DELETE') {
+          setProducts(prev => prev.filter(p => p.id !== payload.old.id));
+        } else {
+          setProducts(prev => {
+            const index = prev.findIndex(p => p.id === payload.new.id);
+            if (index !== -1) {
+              const newProducts = [...prev];
+              newProducts[index] = mapDbToProductStatus(payload.new);
+              return newProducts;
+            }
+            return [mapDbToProductStatus(payload.new), ...prev];
+          });
+        }
       })
       .on('postgres_changes', { 
         event: 'UPDATE', 
@@ -152,11 +162,13 @@ const useUserData = () => {
     } catch (e) { return false; }
   };
 
-  const saveProduct = async (product: Omit<Product, 'isActive'>) => {
+  const saveProduct = async (product: Omit<Product, 'isActive'> & { id?: number }) => {
     if (!user) return false;
     try {
+      // Cari produk yang sudah ada berdasarkan product_id jika id database tidak disediakan
       const existingProduct = products.find(p => p.product_id === product.product_id);
-      const productData = {
+      
+      const productData: any = {
         user_id: user.id,
         product_id: product.product_id,
         name: product.name,
@@ -172,11 +184,21 @@ const useUserData = () => {
         is_active: existingProduct ? existingProduct.isActive : true,
         cron_interval_minutes: product.cron_interval_minutes,
         rival_store_name: product.rivalStoreName || null,
+        updated_at: new Date().toISOString()
       };
+
+      // Jika ini adalah edit, sertakan ID database-nya agar Supabase melakukan UPDATE
+      if (product.id) {
+        productData.id = product.id;
+      }
+
       const { error } = await supabase.from('user_products').upsert(productData);
       if (error) throw error;
       return true;
-    } catch (e) { return false; }
+    } catch (e) { 
+      console.error('Error in saveProduct:', e);
+      return false; 
+    }
   };
 
   const deleteProduct = async (productId: number) => {
