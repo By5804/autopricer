@@ -13,6 +13,8 @@ export interface UserConfig {
   is_cron_active: boolean;
   cron_interval_minutes: number;
   cron_last_run_at: string | null;
+  price_war_trigger_count: number;
+  price_war_trigger_hours: number;
 }
 
 export interface LogEntry {
@@ -33,6 +35,8 @@ const useUserData = () => {
     is_cron_active: false,
     cron_interval_minutes: 15,
     cron_last_run_at: null,
+    price_war_trigger_count: 5,
+    price_war_trigger_hours: 1,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -55,7 +59,6 @@ const useUserData = () => {
         const newResult = resultsMap.get(p.product_id);
         if (!newResult) return p;
         
-        // Menggunakan pengecekan eksplisit agar angka 0 tidak hilang
         return { 
           ...p, 
           status: newResult.status || newResult.last_status || p.status,

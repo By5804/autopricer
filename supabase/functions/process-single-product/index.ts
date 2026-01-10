@@ -45,7 +45,6 @@ serve(async (req) => {
 
     const result = await processProductLogic(supabaseAdmin, config, product);
     
-    // Simpan hasil ke database termasuk status perang harga
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
@@ -63,7 +62,6 @@ serve(async (req) => {
       updated_at: new Date().toISOString()
     }).eq('user_id', userId).eq('product_id', productId);
 
-    // Catat log
     await supabaseAdmin.from('product_logs').insert({
       user_id: userId,
       product_id: productId,
@@ -83,7 +81,7 @@ serve(async (req) => {
 });
 
 async function processProductLogic(supabaseAdmin: any, config: any, product: any) {
-  const { store_name, whitelist, undercut_amount: globalUndercutAmount, api_key, secret_key } = config;
+  const { store_name, whitelist, undercut_amount: globalUndercutAmount, api_key, secret_key, price_war_trigger_count = 5, price_war_trigger_hours = 1 } = config;
   const { 
     min_price: minPrice, 
     max_price: maxPrice, 
@@ -118,27 +116,28 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (myProduct) {
       myPrice = myProduct.price;
       myStock = myProduct.stock;
-      // Perbaikan pengambilan sold count dengan mencari di semua field yang mungkin
+      // Perbaikan pengambilan sold count dengan mencari di semua field yang mungkin digunakan Itemku
       mySoldCount = myProduct.total_sold !== undefined ? myProduct.total_sold : 
                    (myProduct.sold_count !== undefined ? myProduct.sold_count : 
-                   (myProduct.item_sold_count !== undefined ? myProduct.item_sold_count : 0));
+                   (myProduct.item_sold_count !== undefined ? myProduct.item_sold_count : 
+                   (myProduct.total_item_sold !== undefined ? myProduct.total_item_sold : 0)));
     }
 
     if (myIndex === -1) {
       message = 'logic.outOfStock';
       status = 'error';
     } else {
-      // Deteksi Underpricecut / Perang Harga
+      // Deteksi Underpricecut / Perang Harga dengan ambang batas dinamis
       if (rivalStoreName) {
         const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
         const rivalIndex = rivalProduct ? competitorList.indexOf(rivalProduct) : -1;
         
         const now = new Date();
-        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : oneHourAgo;
+        const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
+        const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
 
-        // Reset counter jika sudah lewat 1 jam
-        if (lastReset < oneHourAgo) {
+        // Reset counter jika jendela waktu sudah lewat
+        if (now.getTime() - lastReset.getTime() >= timeLimitMs) {
           priceWarCounter = 0;
           priceWarLastResetAt = now.toISOString();
         }
@@ -148,8 +147,8 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           priceWarCounter += 1;
         }
 
-        // Jika counter mencapai 5, aktifkan mode perang
-        if (priceWarCounter >= 5) {
+        // Jika counter mencapai ambang batas, aktifkan mode perang
+        if (priceWarCounter >= price_war_trigger_count) {
           newPrice = minPrice;
           message = 'logic.priceWarDetected';
           messageParams = { rivalStoreName, minPrice: minPrice.toLocaleString('id-ID') };
@@ -169,9 +168,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
             competitorPrice = p2.price;
             competitorStoreName = p2.seller?.shop_name;
             competitorStock = p2.stock;
-            competitorSoldCount = p2.total_sold !== undefined ? p2.total_sold : 
-                                 (p2.sold_count !== undefined ? p2.sold_count : 
-                                 (p2.item_sold_count !== undefined ? p2.item_sold_count : 0));
+            competitorSoldCount = p2.total_sold ?? p2.sold_count ?? 0;
 
             if (p2.price - myPrice > undercutValue + 90) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
@@ -185,18 +182,14 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           competitorPrice = target.price;
           competitorStoreName = target.seller?.shop_name;
           competitorStock = target.stock;
-          competitorSoldCount = target.total_sold !== undefined ? target.total_sold : 
-                               (target.sold_count !== undefined ? target.sold_count : 
-                               (target.item_sold_count !== undefined ? target.item_sold_count : 0));
+          competitorSoldCount = target.total_sold ?? target.sold_count ?? 0;
         } else {
           message = 'logic.holdPrice';
           const p1 = competitorList[0];
           competitorPrice = p1.price;
           competitorStoreName = p1.seller?.shop_name;
           competitorStock = p1.stock;
-          competitorSoldCount = p1.total_sold !== undefined ? p1.total_sold : 
-                               (p1.sold_count !== undefined ? p1.sold_count : 
-                               (p1.item_sold_count !== undefined ? p1.item_sold_count : 0));
+          competitorSoldCount = p1.total_sold ?? p1.sold_count ?? 0;
         }
         status = 'success';
       }

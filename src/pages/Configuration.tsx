@@ -14,6 +14,8 @@ export const Configuration = () => {
   const [storeName, setStoreName] = useState('');
   const [whitelist, setWhitelist] = useState('');
   const [undercutAmount, setUndercutAmount] = useState(10);
+  const [triggerCount, setTriggerCount] = useState(5);
+  const [triggerHours, setTriggerHours] = useState(1);
 
   useEffect(() => {
     if (config) {
@@ -22,6 +24,8 @@ export const Configuration = () => {
       setStoreName(config.store_name || '');
       setWhitelist(config.whitelist || '');
       setUndercutAmount(config.undercut_amount || 10);
+      setTriggerCount(config.price_war_trigger_count || 5);
+      setTriggerHours(config.price_war_trigger_hours || 1);
     }
   }, [config]);
 
@@ -32,13 +36,15 @@ export const Configuration = () => {
       store_name: storeName,
       whitelist: whitelist,
       undercut_amount: undercutAmount,
+      price_war_trigger_count: triggerCount,
+      price_war_trigger_hours: triggerHours,
     });
     if (success) showSuccess('Configuration saved successfully.');
     else showError('Failed to save configuration.');
   };
 
   return (
-    <div className="p-8">
+    <div className="p-8 space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Itemku Configuration</CardTitle>
@@ -69,7 +75,43 @@ export const Configuration = () => {
           </div>
         </CardContent>
         <CardFooter className="flex justify-end gap-2">
-          <Button onClick={handleSave}>Save Config</Button>
+          <Button onClick={handleSave}>Save Basic Config</Button>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Underpricecut Detection Settings</CardTitle>
+          <CardDescription>Configure how aggressively the bot detects and reacts to rival undercutting.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="trigger-count">Trigger Count (times)</Label>
+              <Input 
+                id="trigger-count" 
+                type="number" 
+                value={triggerCount} 
+                onChange={(e) => setTriggerCount(Number(e.target.value))} 
+                placeholder="e.g., 5"
+              />
+              <p className="text-xs text-muted-foreground">How many times the rival must undercut you to trigger the drop.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="trigger-hours">Time Window (hours)</Label>
+              <Input 
+                id="trigger-hours" 
+                type="number" 
+                value={triggerHours} 
+                onChange={(e) => setTriggerHours(Number(e.target.value))} 
+                placeholder="e.g., 1"
+              />
+              <p className="text-xs text-muted-foreground">The time span within which the undercuts must occur.</p>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="flex justify-end">
+          <Button onClick={handleSave}>Save Underpricecut Settings</Button>
         </CardFooter>
       </Card>
     </div>
