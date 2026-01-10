@@ -22,7 +22,6 @@ async function fetchWithTimeout(resource: string, options = {}, timeout = 12000)
   }
 }
 
-// Fungsi pembantu untuk mencari jumlah terjual di berbagai field
 const getSoldCount = (p: any) => {
   if (!p) return 0;
   return p.total_sold ?? p.item_sold_count ?? p.sold_count ?? p.sold ?? p.total_item_sold ?? 0;
@@ -131,7 +130,6 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
       message = 'logic.outOfStock';
       status = 'error';
     } else {
-      // Deteksi Underpricecut / Perang Harga
       let isWarMode = false;
       if (rivalStoreName) {
         const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
@@ -199,7 +197,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           competitorStock = p1.stock;
           competitorSoldCount = getSoldCount(p1);
         }
-        status = 'success';
+        status = (newPrice && newPrice !== myPrice) ? 'updated' : 'success';
       }
     }
 
