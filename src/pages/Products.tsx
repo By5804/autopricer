@@ -13,6 +13,7 @@ import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { NextRunCountdown } from '@/components/NextRunCountdown';
+import { formatMessage } from '@/utils/translations';
 
 export const Products = () => {
   const { 
@@ -37,7 +38,7 @@ export const Products = () => {
     if (success) {
       showSuccess(`Product status updated to ${isActive ? 'active' : 'inactive'}.`);
     } else {
-      showError('Failed to update product status. Please check the browser console for details.');
+      showError('Failed to update product status.');
     }
   };
 
@@ -61,7 +62,7 @@ export const Products = () => {
   const handleSort = (key: keyof ProductStatus) => {
     let direction: 'ascending' | 'descending' = 'ascending';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-      direction = 'desending';
+      direction = 'descending';
     }
     setSortConfig({ key, direction });
   };
@@ -81,13 +82,8 @@ export const Products = () => {
 
   const sortedCategories = Object.keys(groupedProducts).sort((a, b) => a.localeCompare(b));
 
-  const handleExpandAll = () => {
-    setOpenCategories(sortedCategories);
-  };
-
-  const handleCollapseAll = () => {
-    setOpenCategories([]);
-  };
+  const handleExpandAll = () => setOpenCategories(sortedCategories);
+  const handleCollapseAll = () => setOpenCategories([]);
 
   if (userDataLoading) {
     return (
@@ -164,7 +160,7 @@ export const Products = () => {
 
                     return (
                       <AccordionItem value={category} key={category}>
-                        <AccordionTrigger className="text-xl font-semibold px-4">
+                        <AccordionTrigger className="text-xl font-semibold px-4 hover:no-underline">
                           <div className="flex justify-between w-full items-center">
                             <span>{category}</span>
                             <span className="text-sm font-normal text-muted-foreground mr-4">
@@ -222,7 +218,7 @@ export const Products = () => {
             <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
               {logs.map((log, index) => {
                 const prevLog = logs[index + 1];
-                const TIME_GAP_SECONDS = 10;
+                const TIME_GAP_SECONDS = 60;
                 let showSeparator = false;
 
                 if (prevLog) {
@@ -238,10 +234,13 @@ export const Products = () => {
                 return (
                   <Fragment key={index}>
                     {showSeparator && (
-                      <div className="my-2 border-t border-dashed border-border"></div>
+                      <div className="my-2 border-t border-dashed border-border/50"></div>
                     )}
-                    <div className="text-sm font-mono py-0.5">
-                      {log.message}
+                    <div className="text-sm font-mono py-1 flex gap-2">
+                      <span className="text-muted-foreground shrink-0">
+                        [{new Date(log.createdAt).toLocaleTimeString()}]
+                      </span>
+                      <span>{formatMessage(log.message)}</span>
                     </div>
                   </Fragment>
                 );
