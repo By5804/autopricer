@@ -15,6 +15,13 @@ export interface UserConfig {
   cron_last_run_at: string | null;
 }
 
+export interface LogEntry {
+  message: string;
+  messageParams?: Record<string, any>;
+  productName?: string;
+  createdAt: string;
+}
+
 const useUserData = () => {
   const { user } = useAuth();
   const [config, setConfig] = useState<UserConfig>({
@@ -28,12 +35,17 @@ const useUserData = () => {
     cron_last_run_at: null,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
-  const [logs, setLogs] = useState<{ message: string; createdAt: string }[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const addLog = useCallback((message: string, createdAt: string) => {
-    const formattedMessage = `${new Date(createdAt).toLocaleTimeString()}: ${message}`;
-    setLogs(prev => [{ message: formattedMessage, createdAt }, ...prev].slice(0, 100));
+  const addLog = useCallback((logData: any, createdAt: string) => {
+    const newLog: LogEntry = {
+      message: logData?.message || 'Activity log entry',
+      messageParams: logData?.messageParams || {},
+      productName: logData?.productName || logData?.name || 'Product',
+      createdAt: createdAt
+    };
+    setLogs(prev => [newLog, ...prev].slice(0, 100));
   }, []);
 
   const updateProductsWithResults = useCallback((results: ProductStatus[]) => {
@@ -110,7 +122,6 @@ const useUserData = () => {
           }));
         }
 
-        // Load logs from product_logs
         const { data: logsData } = await supabase
           .from('product_logs')
           .select('*')
@@ -121,6 +132,8 @@ const useUserData = () => {
         if (logsData && isMounted) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
+            messageParams: l.log_data?.messageParams || {},
+            productName: l.log_data?.productName || l.log_data?.name || 'Product',
             createdAt: l.created_at
           })));
         }
@@ -139,7 +152,7 @@ const useUserData = () => {
     const channel = supabase
       .channel(`db-changes-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs', filter: `user_id=eq.${user.id}` }, 
-        (payload) => addLog(payload.new.log_data?.message || 'New activity', payload.new.created_at)
+        (payload) => addLog(payload.new.log_data, payload.new.created_at)
       )
       .subscribe();
 

@@ -240,7 +240,10 @@ export const Products = () => {
                       <span className="text-muted-foreground shrink-0">
                         [{new Date(log.createdAt).toLocaleTimeString()}]
                       </span>
-                      <span>{formatMessage(log.message)}</span>
+                      <span className="font-semibold text-primary shrink-0">
+                        {log.productName}:
+                      </span>
+                      <span>{formatMessage(log.message, log.messageParams)}</span>
                     </div>
                   </Fragment>
                 );
