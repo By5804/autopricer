@@ -12,12 +12,12 @@ import { formatDistanceToNow } from 'date-fns';
 export const Automation = () => {
   const { config, saveConfig } = useUserData();
   const [isCronActive, setIsCronActive] = useState(false);
-  const [cronInterval, setCronInterval] = useState(15);
+  const [cronInterval, setCronInterval] = useState(5);
 
   useEffect(() => {
     if (config) {
       setIsCronActive(config.is_cron_active || false);
-      setCronInterval(config.cron_interval_minutes || 15);
+      setCronInterval(config.cron_interval_minutes || 5);
     }
   }, [config]);
 
@@ -30,7 +30,7 @@ export const Automation = () => {
     else showError('Failed to save automation settings.');
   };
 
-  const lastRunText = config.cron_last_run_at
+  const lastRunText = config?.cron_last_run_at
     ? `${formatDistanceToNow(new Date(config.cron_last_run_at), { addSuffix: true })}`
     : 'Never';
 
@@ -45,12 +45,21 @@ export const Automation = () => {
           <div className="flex items-center space-x-4 rounded-md border p-4">
             <div className="flex-1 space-y-1">
               <p className="text-sm font-medium">Automatic Price Checking</p>
+              <p className="text-xs text-muted-foreground">The bot will check and update prices in the background.</p>
             </div>
             <Switch checked={isCronActive} onCheckedChange={setIsCronActive} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="cron-interval">Interval (minutes)</Label>
-            <Input id="cron-interval" type="number" value={cronInterval} onChange={(e) => setCronInterval(Number(e.target.value))} disabled={!isCronActive} />
+            <Input 
+              id="cron-interval" 
+              type="number" 
+              min="1"
+              value={cronInterval} 
+              onChange={(e) => setCronInterval(Number(e.target.value))} 
+              disabled={!isCronActive} 
+            />
+            <p className="text-xs text-muted-foreground">Default is 5 minutes. Minimum is 1 minute.</p>
           </div>
            <div className="flex items-center text-sm text-muted-foreground">
             <Clock className="mr-2 h-4 w-4" />
