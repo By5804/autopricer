@@ -19,12 +19,8 @@ export const NextRunCountdown = ({ lastRunAt, intervalMinutes, isCronActive }: N
     }
 
     const calculateTimeLeft = () => {
-      if (!lastRunAt) {
-        setTimeLeft('Waiting for first run...');
-        return;
-      }
-
-      const lastRunDate = new Date(lastRunAt);
+      // Jika belum pernah jalan, berarti akan jalan segera atau menunggu siklus berikutnya
+      const lastRunDate = lastRunAt ? new Date(lastRunAt) : new Date(Date.now() - (intervalMinutes * 60 * 1000));
       const nextRunDate = addMinutes(lastRunDate, intervalMinutes);
       const now = new Date();
 
@@ -39,14 +35,15 @@ export const NextRunCountdown = ({ lastRunAt, intervalMinutes, isCronActive }: N
     const intervalId = setInterval(calculateTimeLeft, 1000); // Update every second
 
     return () => clearInterval(intervalId); // Cleanup on unmount
-  }, [lastRunAt, intervalMinutes, isCronActive]);
+  }, [lastRunAt, intervalMinutes, isCronActive]); // Re-run effect if interval changes
 
   return (
-    <Card className="mb-8">
+    <Card className="mb-8 border-primary/20 bg-primary/5">
       <CardContent className="flex items-center p-4">
         <Clock className="mr-3 h-5 w-5 text-primary" />
         <p className="text-sm font-medium">
-          Next automatic run: <span className="font-semibold">{timeLeft}</span>
+          Siklus Otomasi Berikutnya: <span className="font-bold text-primary">{timeLeft}</span>
+          <span className="ml-2 text-xs font-normal text-muted-foreground">(Interval: {intervalMinutes}m)</span>
         </p>
       </CardContent>
     </Card>
