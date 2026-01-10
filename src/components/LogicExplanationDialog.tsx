@@ -47,12 +47,12 @@ export function LogicExplanationDialog() {
               <AccordionTrigger>
                 <div className="flex items-center space-x-3">
                   <Zap className="h-5 w-5 text-purple-500" />
-                  <span>Price War Strategy (Rival Store)</span>
+                  <span>Underpricecut for rival store</span>
                 </div>
               </AccordionTrigger>
               <AccordionContent className="space-y-4 pt-2">
                 <LogicItem icon={<ShieldAlert className="h-4 w-4" />} title="Detection">
-                  If a specific Rival Store (set per product) undercuts you 5 times within 1 hour, a Price War is detected.
+                  If a specific Rival Store (set per product) undercuts you 5 times within 1 hour, an Underpricecut/Price War is detected.
                 </LogicItem>
                 <LogicItem icon={<ArrowDown className="h-4 w-4" />} title="Defensive Floor">
                   Upon detection, your price is immediately dropped to your Minimum Price (Min Price) to discourage further undercutting.

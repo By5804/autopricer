@@ -45,7 +45,7 @@ serve(async (req) => {
 
     const result = await processProductLogic(supabaseAdmin, config, product);
     
-    // Simpan hasil ke database
+    // Simpan hasil ke database termasuk status perang harga
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
@@ -58,6 +58,8 @@ serve(async (req) => {
       last_competitor_store_name: result.competitorStoreName,
       last_competitor_stock: result.competitorStock,
       last_competitor_sold_count: result.competitorSoldCount,
+      price_war_counter: result.priceWarCounter,
+      price_war_last_reset_at: result.priceWarLastResetAt,
       updated_at: new Date().toISOString()
     }).eq('user_id', userId).eq('product_id', productId);
 
@@ -76,27 +78,27 @@ serve(async (req) => {
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error("[process-single-product] Error:", error.message);
-    
-    if (userId && productId) {
-      await supabaseAdmin.from('user_products').update({
-        last_status: 'error',
-        last_message: 'logic.processFailed',
-        last_message_params: { errorMessage: error.message },
-        updated_at: new Date().toISOString()
-      }).eq('user_id', userId).eq('product_id', productId);
-    }
-
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
 
 async function processProductLogic(supabaseAdmin: any, config: any, product: any) {
   const { store_name, whitelist, undercut_amount: globalUndercutAmount, api_key, secret_key } = config;
-  const { min_price: minPrice, max_price: maxPrice, undercut_amount: prodUndercutAmount } = product;
+  const { 
+    min_price: minPrice, 
+    max_price: maxPrice, 
+    undercut_amount: prodUndercutAmount,
+    rival_store_name: rivalStoreName,
+    price_war_counter: currentCounter = 0,
+    price_war_last_reset_at: lastResetAt
+  } = product;
   
   let myPrice = null, myStock = null, mySoldCount = null;
   let competitorPrice = null, competitorStoreName = null, competitorStock = null, competitorSoldCount = null;
   let newPrice = null, message = 'logic.waiting', messageParams = {}, status = 'idle';
+  
+  let priceWarCounter = currentCounter;
+  let priceWarLastResetAt = lastResetAt;
 
   const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
   const whitelistedStores = whitelist ? whitelist.split(',').map((name: string) => name.trim().toLowerCase()) : [];
@@ -116,51 +118,84 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (myProduct) {
       myPrice = myProduct.price;
       myStock = myProduct.stock;
-      // Mencoba beberapa kemungkinan nama field untuk total terjual
-      mySoldCount = myProduct.total_sold !== undefined ? myProduct.total_sold : (myProduct.sold_count !== undefined ? myProduct.sold_count : 0);
+      // Perbaikan pengambilan sold count: itemku terkadang menggunakan total_sold atau sold_count
+      mySoldCount = myProduct.total_sold ?? myProduct.sold_count ?? 0;
     }
 
     if (myIndex === -1) {
       message = 'logic.outOfStock';
       status = 'error';
     } else {
-      const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
-      
-      if (myIndex === 0) {
-        const p2 = competitorList[1];
-        if (!p2) {
-          if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
-          else message = 'logic.onlySellerAtMax';
-        } else {
-          competitorPrice = p2.price;
-          competitorStoreName = p2.seller?.shop_name;
-          competitorStock = p2.stock;
-          competitorSoldCount = p2.total_sold !== undefined ? p2.total_sold : (p2.sold_count !== undefined ? p2.sold_count : 0);
+      // Deteksi Underpricecut / Perang Harga
+      if (rivalStoreName) {
+        const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
+        const rivalIndex = rivalProduct ? competitorList.indexOf(rivalProduct) : -1;
+        
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : oneHourAgo;
 
-          if (p2.price - myPrice > undercutValue + 90) {
-            newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
-            message = 'logic.maximizeProfit';
-          } else message = 'logic.cheapestOptimal';
+        // Reset counter jika sudah lewat 1 jam
+        if (lastReset < oneHourAgo) {
+          priceWarCounter = 0;
+          priceWarLastResetAt = now.toISOString();
         }
-      } else if (target) {
-        newPrice = roundPrice(target.price - undercutValue);
-        message = 'logic.undercutting';
-        messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
-        competitorPrice = target.price;
-        competitorStoreName = target.seller?.shop_name;
-        competitorStock = target.stock;
-        competitorSoldCount = target.total_sold !== undefined ? target.total_sold : (target.sold_count !== undefined ? target.sold_count : 0);
-      } else {
-        message = 'logic.holdPrice';
-        const p1 = competitorList[0];
-        competitorPrice = p1.price;
-        competitorStoreName = p1.seller?.shop_name;
-        competitorStock = p1.stock;
-        competitorSoldCount = p1.total_sold !== undefined ? p1.total_sold : (p1.sold_count !== undefined ? p1.sold_count : 0);
+
+        // Jika rival lebih murah dari saya, tambah counter
+        if (rivalIndex !== -1 && rivalIndex < myIndex) {
+          priceWarCounter += 1;
+        }
+
+        // Jika counter mencapai 5, aktifkan mode perang
+        if (priceWarCounter >= 5) {
+          newPrice = minPrice;
+          message = 'logic.priceWarDetected';
+          messageParams = { rivalStoreName, minPrice: minPrice.toLocaleString('id-ID') };
+          status = 'updated'; // Kita ingin ini langsung update ke min
+        }
       }
-      status = 'success';
+
+      // Jika tidak sedang dalam perang harga yang baru dideteksi, gunakan logika normal
+      if (status !== 'updated') {
+        const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+        
+        if (myIndex === 0) {
+          const p2 = competitorList[1];
+          if (!p2) {
+            if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
+            else message = 'logic.onlySellerAtMax';
+          } else {
+            competitorPrice = p2.price;
+            competitorStoreName = p2.seller?.shop_name;
+            competitorStock = p2.stock;
+            competitorSoldCount = p2.total_sold ?? p2.sold_count ?? 0;
+
+            if (p2.price - myPrice > undercutValue + 90) {
+              newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
+              message = 'logic.maximizeProfit';
+            } else message = 'logic.cheapestOptimal';
+          }
+        } else if (target) {
+          newPrice = roundPrice(target.price - undercutValue);
+          message = 'logic.undercutting';
+          messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+          competitorPrice = target.price;
+          competitorStoreName = target.seller?.shop_name;
+          competitorStock = target.stock;
+          competitorSoldCount = target.total_sold ?? target.sold_count ?? 0;
+        } else {
+          message = 'logic.holdPrice';
+          const p1 = competitorList[0];
+          competitorPrice = p1.price;
+          competitorStoreName = p1.seller?.shop_name;
+          competitorStock = p1.stock;
+          competitorSoldCount = p1.total_sold ?? p1.sold_count ?? 0;
+        }
+        status = 'success';
+      }
     }
 
+    // Eksekusi update harga jika diperlukan
     if (newPrice !== null && newPrice !== myPrice) {
       if (newPrice < minPrice) {
         message = 'logic.violatesMinPrice';
@@ -180,8 +215,8 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const upData = await upRes.json();
         if (upRes.ok && upData.success) {
           status = 'updated';
-          message = 'logic.updateSuccess';
-          messageParams = { newPrice: newPrice.toLocaleString('id-ID') };
+          message = (message === 'logic.priceWarDetected') ? message : 'logic.updateSuccess';
+          messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
         } else {
           status = 'error';
           message = 'logic.updateFail';
@@ -191,5 +226,5 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     }
   }
 
-  return { status, message, messageParams, myPrice, myStock, mySoldCount, newPrice, competitorPrice, competitorStoreName, competitorStock, competitorSoldCount };
+  return { status, message, messageParams, myPrice, myStock, mySoldCount, newPrice, competitorPrice, competitorStoreName, competitorStock, competitorSoldCount, priceWarCounter, priceWarLastResetAt };
 }
