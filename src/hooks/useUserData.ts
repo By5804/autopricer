@@ -26,18 +26,7 @@ export interface LogEntry {
 
 const useUserData = () => {
   const { user } = useAuth();
-  const [config, setConfig] = useState<UserConfig>({
-    api_key: '',
-    secret_key: '',
-    store_name: '',
-    whitelist: '',
-    undercut_amount: 10,
-    is_cron_active: false,
-    cron_interval_minutes: 15,
-    cron_last_run_at: null,
-    price_war_trigger_count: 5,
-    price_war_trigger_hours: 1,
-  });
+  const [config, setConfig] = useState<UserConfig | null>(null);
   const [products, setProducts] = useState<ProductStatus[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,33 +38,41 @@ const useUserData = () => {
       productName: logData?.productName || logData?.name || 'Product',
       createdAt: createdAt
     };
-    setLogs(prev => [newLog, ...prev].slice(0, 100));
-  }, []);
-
-  const updateProductsWithResults = useCallback((results: any[]) => {
-    setProducts(prev => {
-      const resultsMap = new Map(results.map(r => [r.product_id, r]));
-      return prev.map(p => {
-        const newResult = resultsMap.get(p.product_id);
-        if (!newResult) return p;
-        
-        return { 
-          ...p, 
-          status: newResult.status || newResult.last_status || p.status,
-          message: newResult.message || newResult.last_message || p.message,
-          messageParams: newResult.messageParams || newResult.last_message_params || p.messageParams,
-          myPrice: newResult.myPrice !== undefined ? newResult.myPrice : (newResult.last_my_price !== undefined ? newResult.last_my_price : p.myPrice),
-          myStock: newResult.myStock !== undefined ? newResult.myStock : (newResult.last_my_stock !== undefined ? newResult.last_my_stock : p.myStock),
-          mySoldCount: newResult.mySoldCount !== undefined ? newResult.mySoldCount : (newResult.last_my_sold_count !== undefined ? newResult.last_my_sold_count : p.mySoldCount),
-          competitorPrice: newResult.competitorPrice !== undefined ? newResult.competitorPrice : (newResult.last_competitor_price !== undefined ? newResult.last_competitor_price : p.competitorPrice),
-          competitorStoreName: newResult.competitorStoreName || newResult.last_competitor_store_name || p.competitorStoreName,
-          competitorStock: newResult.competitorStock !== undefined ? newResult.competitorStock : (newResult.last_competitor_stock !== undefined ? newResult.last_competitor_stock : p.competitorStock),
-          competitorSoldCount: newResult.competitorSoldCount !== undefined ? newResult.competitorSoldCount : (newResult.last_competitor_sold_count !== undefined ? newResult.last_competitor_sold_count : p.competitorSoldCount),
-          newPrice: newResult.newPrice !== undefined ? newResult.newPrice : (newResult.proposed_price !== undefined ? newResult.proposed_price : p.newPrice),
-        };
-      });
+    setLogs(prev => {
+      // Hindari duplikasi jika event Realtime datang bersamaan dengan polling
+      const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
+      if (exists) return prev;
+      return [newLog, ...prev].slice(0, 100);
     });
   }, []);
+
+  const mapDbToProductStatus = useCallback((p: any): ProductStatus => ({
+    product_id: p.product_id,
+    name: p.name,
+    category: p.category,
+    minPrice: p.min_price,
+    maxPrice: p.max_price,
+    priceUndercutAmount: p.undercut_amount,
+    price_war_undercut_amount: p.price_war_undercut_amount,
+    game_id: p.game_id,
+    item_type_id: p.item_type_id,
+    item_info_group_id: p.item_info_group_id,
+    item_info_id: p.item_info_id,
+    isActive: p.is_active,
+    cron_interval_minutes: p.cron_interval_minutes,
+    rivalStoreName: p.rival_store_name,
+    status: (p.last_status as any) || 'idle',
+    message: p.last_message || 'logic.waiting',
+    messageParams: p.last_message_params || {},
+    myPrice: p.last_my_price,
+    myStock: p.last_my_stock,
+    mySoldCount: p.last_my_sold_count,
+    competitorPrice: p.last_competitor_price,
+    competitorStoreName: p.last_competitor_store_name,
+    competitorStock: p.last_competitor_stock,
+    competitorSoldCount: p.last_competitor_sold_count,
+    newPrice: p.proposed_price,
+  }), []);
 
   useEffect(() => {
     if (!user) {
@@ -83,42 +80,14 @@ const useUserData = () => {
       return;
     }
 
-    const loadUserData = async () => {
+    const loadInitialData = async () => {
       try {
         const { data: configData } = await supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle();
         if (configData) setConfig(configData);
 
         const { data: productsData } = await supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-
         if (productsData) {
-          const initialProducts: ProductStatus[] = productsData.map(p => ({
-            product_id: p.product_id,
-            name: p.name,
-            category: p.category,
-            minPrice: p.min_price,
-            maxPrice: p.max_price,
-            priceUndercutAmount: p.undercut_amount,
-            price_war_undercut_amount: p.price_war_undercut_amount,
-            game_id: p.game_id,
-            item_type_id: p.item_type_id,
-            item_info_group_id: p.item_info_group_id,
-            item_info_id: p.item_info_id,
-            isActive: p.is_active,
-            cron_interval_minutes: p.cron_interval_minutes,
-            rivalStoreName: p.rival_store_name,
-            status: (p.last_status as any) || 'idle',
-            message: p.last_message || 'logic.waiting',
-            messageParams: p.last_message_params || {},
-            myPrice: p.last_my_price,
-            myStock: p.last_my_stock,
-            mySoldCount: p.last_my_sold_count,
-            competitorPrice: p.last_competitor_price,
-            competitorStoreName: p.last_competitor_store_name,
-            competitorStock: p.last_competitor_stock,
-            competitorSoldCount: p.last_competitor_sold_count,
-            newPrice: p.proposed_price,
-          }));
-          setProducts(initialProducts);
+          setProducts(productsData.map(mapDbToProductStatus));
         }
 
         const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
@@ -131,32 +100,55 @@ const useUserData = () => {
           })));
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
+        console.error('Error loading initial data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    loadUserData();
+    loadInitialData();
 
+    // Setup Realtime Subscription
     const channel = supabase
-      .channel(`db-changes-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs', filter: `user_id=eq.${user.id}` }, 
-        (payload) => addLog(payload.new.log_data, payload.new.created_at)
-      )
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_products', filter: `user_id=eq.${user.id}` },
-        (payload) => updateProductsWithResults([payload.new])
-      )
+      .channel(`user-updates-${user.id}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'product_logs', 
+        filter: `user_id=eq.${user.id}` 
+      }, (payload) => {
+        addLog(payload.new.log_data, payload.new.created_at);
+      })
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'user_products', 
+        filter: `user_id=eq.${user.id}` 
+      }, (payload) => {
+        setProducts(prev => prev.map(p => 
+          p.product_id === payload.new.product_id ? mapDbToProductStatus(payload.new) : p
+        ));
+      })
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'user_configurations', 
+        filter: `user_id=eq.${user.id}` 
+      }, (payload) => {
+        setConfig(payload.new as UserConfig);
+      })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [user, addLog, updateProductsWithResults]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, addLog, mapDbToProductStatus]);
 
   const saveConfig = async (newConfig: Partial<UserConfig>) => {
     if (!user) return false;
     try {
-      await supabase.from('user_configurations').upsert({ user_id: user.id, ...newConfig, updated_at: new Date().toISOString() });
-      setConfig(prev => ({ ...prev, ...newConfig }));
+      const { error } = await supabase.from('user_configurations').upsert({ user_id: user.id, ...newConfig, updated_at: new Date().toISOString() });
+      if (error) throw error;
       return true;
     } catch (e) { return false; }
   };
@@ -182,41 +174,8 @@ const useUserData = () => {
         cron_interval_minutes: product.cron_interval_minutes,
         rival_store_name: product.rivalStoreName || null,
       };
-      const { data, error } = await supabase.from('user_products').upsert(productData).select().single();
+      const { error } = await supabase.from('user_products').upsert(productData);
       if (error) throw error;
-      if (data) {
-        setProducts(prev => {
-          const index = prev.findIndex(p => p.product_id === data.product_id);
-          const newProd: ProductStatus = {
-            product_id: data.product_id,
-            name: data.name,
-            category: data.category,
-            minPrice: data.min_price,
-            maxPrice: data.max_price,
-            priceUndercutAmount: data.undercut_amount,
-            price_war_undercut_amount: data.price_war_undercut_amount,
-            game_id: data.game_id,
-            item_type_id: data.item_type_id,
-            item_info_group_id: data.item_info_group_id,
-            item_info_id: data.item_info_id,
-            isActive: data.is_active,
-            cron_interval_minutes: data.cron_interval_minutes,
-            rivalStoreName: data.rival_store_name,
-            status: data.last_status || 'idle',
-            message: data.last_message || 'logic.waiting',
-            messageParams: data.last_message_params || {},
-            myPrice: data.last_my_price,
-            myStock: data.last_my_stock,
-            mySoldCount: data.last_my_sold_count,
-            competitorPrice: data.last_competitor_price,
-            competitorStoreName: data.last_competitor_store_name,
-            competitorStock: data.last_competitor_stock,
-            competitorSoldCount: data.last_competitor_sold_count,
-          };
-          if (index > -1) { const list = [...prev]; list[index] = newProd; return list; }
-          return [newProd, ...prev];
-        });
-      }
       return true;
     } catch (e) { return false; }
   };
@@ -224,8 +183,8 @@ const useUserData = () => {
   const deleteProduct = async (productId: number) => {
     if (!user) return false;
     try {
-      await supabase.from('user_products').delete().eq('user_id', user.id).eq('product_id', productId);
-      setProducts(prev => prev.filter(p => p.product_id !== productId));
+      const { error } = await supabase.from('user_products').delete().eq('user_id', user.id).eq('product_id', productId);
+      if (error) throw error;
       return true;
     } catch (e) { return false; }
   };
@@ -236,27 +195,24 @@ const useUserData = () => {
       for (const update of updates) {
         await supabase.from('user_products').update({ is_active: update.isActive }).eq('user_id', user.id).eq('product_id', update.productId);
       }
-      setProducts(prev => prev.map(p => {
-        const up = updates.find(u => u.productId === p.product_id);
-        return up ? { ...p, isActive: up.isActive } : p;
-      }));
       return true;
     } catch (e) { return false; }
   };
 
   const processSingleProduct = useCallback(async (productId: number) => {
     if (!user) return;
+    // Set UI to loading state immediately
     setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p));
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
         body: { user_id: user.id, product_id: productId },
       });
       if (error) throw error;
-      if (data) updateProductsWithResults([data]);
+      // UI akan diperbarui via Realtime payload secara otomatis
     } catch (error) {
       setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
     }
-  }, [user, updateProductsWithResults]);
+  }, [user]);
 
   return { config, products, loading, logs, saveConfig, saveProduct, deleteProduct, batchUpdateProductStatus, processSingleProduct };
 };
