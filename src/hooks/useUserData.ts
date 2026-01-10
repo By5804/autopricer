@@ -39,10 +39,9 @@ const useUserData = () => {
       createdAt: createdAt
     };
     setLogs(prev => {
-      // Hindari duplikasi jika event Realtime datang bersamaan dengan polling
       const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (exists) return prev;
-      return [newLog, ...prev].slice(0, 100);
+      return [newLog, ...prev].slice(0, 200); // Simpan hingga 200 di state
     });
   }, []);
 
@@ -90,7 +89,8 @@ const useUserData = () => {
           setProducts(productsData.map(mapDbToProductStatus));
         }
 
-        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
+        // Meningkatkan limit menjadi 200 entri
+        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200);
         if (logsData) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
@@ -108,7 +108,6 @@ const useUserData = () => {
 
     loadInitialData();
 
-    // Setup Realtime Subscription
     const channel = supabase
       .channel(`user-updates-${user.id}`)
       .on('postgres_changes', { 
@@ -201,14 +200,12 @@ const useUserData = () => {
 
   const processSingleProduct = useCallback(async (productId: number) => {
     if (!user) return;
-    // Set UI to loading state immediately
     setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p));
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
         body: { user_id: user.id, product_id: productId },
       });
       if (error) throw error;
-      // UI akan diperbarui via Realtime payload secara otomatis
     } catch (error) {
       setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
     }
