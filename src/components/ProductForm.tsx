@@ -5,7 +5,7 @@ import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Textarea } from '@/components/ui/textarea';
 import { Upload } from 'lucide-react';
 import { showError } from '@/utils/toast';
@@ -36,7 +36,7 @@ const productSchema = z.object({
     (val) => (val === "" || val === null || val === 0 ? undefined : val),
     z.coerce.number().min(1).optional()
   ),
-  rivalStoreName: z.string().optional(), // New field
+  rivalStoreName: z.string().optional(),
 }).refine(data => data.maxPrice >= data.minPrice, {
   message: 'Max price must be greater than or equal to min price.',
   path: ["maxPrice"],
@@ -70,7 +70,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       item_info_group_id: undefined,
       item_info_id: 0,
       cron_interval_minutes: undefined,
-      rivalStoreName: '', // Default value
+      rivalStoreName: '',
     },
   });
 
@@ -84,7 +84,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
         item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
         cron_interval_minutes: productToEdit.cron_interval_minutes === null ? undefined : productToEdit.cron_interval_minutes,
-        rivalStoreName: productToEdit.rivalStoreName === null ? '' : productToEdit.rivalStoreName, // Load new field
+        rivalStoreName: productToEdit.rivalStoreName === null ? '' : productToEdit.rivalStoreName,
       };
       form.reset(cleanedProduct);
     } else {
@@ -101,7 +101,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         item_info_group_id: undefined,
         item_info_id: 0,
         cron_interval_minutes: undefined,
-        rivalStoreName: '', // Reset new field
+        rivalStoreName: '',
       });
     }
   }, [productToEdit, form.reset]);
@@ -111,7 +111,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       const calculatePrice = (profitPercentage: number) => {
         const targetNet = modalPrice * (1 + profitPercentage);
         const rawPrice = targetNet / (1 - MARKETPLACE_FEE);
-        return Math.ceil(rawPrice / 10) * 10; // Round up to nearest 10
+        return Math.ceil(rawPrice / 10) * 10;
       };
 
       const calculatedMinPrice = calculatePrice(MIN_PROFIT_PERCENTAGE);
@@ -123,7 +123,6 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
   }, [modalPrice, form.setValue]);
 
   const handleFormSubmit = (data: ProductFormData) => {
-    console.log('[ProductForm] Submitting product data:', JSON.stringify(data, null, 2));
     onSubmit(data as Omit<Product, 'isActive'>);
   };
 

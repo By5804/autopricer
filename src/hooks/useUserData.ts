@@ -10,10 +10,10 @@ export interface UserConfig {
   secret_key: string;
   store_name: string;
   whitelist: string;
-  undercut_amount: number;
+  price_undercut_amount: number;
   is_cron_active: boolean;
-  cron_interval_minutes: number;
-  cron_last_run_at: string | null;
+  cron_interval: number;
+  last_cron_run: string | null;
   discord_webhook_url: string | null;
 }
 
@@ -24,10 +24,10 @@ const useUserData = () => {
     secret_key: '',
     store_name: '',
     whitelist: '',
-    undercut_amount: 10,
+    price_undercut_amount: 10,
     is_cron_active: false,
-    cron_interval_minutes: 15,
-    cron_last_run_at: null,
+    cron_interval: 15,
+    last_cron_run: null,
     discord_webhook_url: null,
   });
   const [products, setProducts] = useState<ProductStatus[]>([]);
@@ -67,8 +67,8 @@ const useUserData = () => {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       
       const { data: existingLogs, error } = await supabase
-        .from('product_logs')
-        .select('log_data, created_at')
+        .from('logs')
+        .select('message, created_at')
         .eq('user_id', userId)
         .gte('created_at', oneHourAgo)
         .order('created_at', { ascending: false })
@@ -79,49 +79,13 @@ const useUserData = () => {
         return currentProducts;
       }
 
-      const formattedLogs = (existingLogs || [])
-        .filter(log => (log.log_data as ProductStatus).message !== 'logic.cheapestOptimal')
-        .map(log => {
-          const logData = log.log_data as ProductStatus;
-          const timestamp = new Date(log.created_at).toLocaleTimeString();
-          const message = `${timestamp}: ${logData.name}: ${formatMessage(logData.message, logData.messageParams)}`;
-          return {
-            message,
-            createdAt: log.created_at,
-          };
-        });
+      const formattedLogs = (existingLogs || []).map(log => ({
+        message: log.message,
+        createdAt: log.created_at,
+      }));
       setLogs(formattedLogs);
 
-      const latestLogsByProduct = new Map<number, ProductStatus>();
-      (existingLogs || []).forEach(log => {
-        const logData = log.log_data as ProductStatus;
-        if (!latestLogsByProduct.has(logData.product_id)) {
-          latestLogsByProduct.set(logData.product_id, logData);
-        }
-      });
-
-      const productsWithLogs = currentProducts.map(product => {
-        const latestLog = latestLogsByProduct.get(product.product_id);
-        if (latestLog) {
-          return {
-            ...product,
-            status: latestLog.status,
-            message: latestLog.message,
-            messageParams: latestLog.messageParams,
-            myPrice: latestLog.myPrice,
-            competitorPrice: latestLog.competitorPrice,
-            competitorStoreName: latestLog.competitorStoreName,
-            newPrice: latestLog.newPrice,
-            myStock: latestLog.myStock,
-            mySoldCount: latestLog.mySoldCount,
-            competitorStock: latestLog.competitorStock,
-            competitorSoldCount: latestLog.competitorSoldCount,
-          };
-        }
-        return product;
-      });
-      return productsWithLogs;
-
+      return currentProducts;
     } catch (error) {
       console.error('Error in loadExistingLogs:', error);
       return currentProducts;
@@ -140,7 +104,7 @@ const useUserData = () => {
     const loadUserData = async () => {
       try {
         const { data: configData, error: configError } = await supabase
-          .from('user_configurations')
+          .from('configurations')
           .select('*')
           .eq('user_id', user.id)
           .maybeSingle();
@@ -154,8 +118,8 @@ const useUserData = () => {
         }
 
         const { data: productsData, error: productsError } = await supabase
-          .from('products') // Menggunakan nama tabel yang benar
-          .select('*, price_war_counter, price_war_last_reset_at') // Select new tracking fields
+          .from('products')
+          .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -165,25 +129,23 @@ const useUserData = () => {
         if (productsError) {
           console.error('Error loading products:', productsError);
         } else {
-          initialProducts = (productsData || []).map(p => {
-            return {
-              product_id: p.product_id,
-              name: p.name,
-              category: p.category,
-              minPrice: p.min_price,
-              maxPrice: p.max_price,
-              priceUndercutAmount: p.undercut_amount,
-              game_id: p.game_id,
-              item_type_id: p.item_type_id,
-              item_info_group_id: p.item_info_group_id,
-              item_info_id: p.item_info_id,
-              isActive: p.is_active,
-              cron_interval_minutes: p.cron_interval_minutes,
-              rivalStoreName: p.rival_store_name, // Load new field
-              status: 'idle',
-              message: 'logic.waiting',
-            };
-          });
+          initialProducts = (productsData || []).map(p => ({
+            product_id: p.product_id,
+            name: p.name,
+            category: p.category,
+            minPrice: p.min_price,
+            maxPrice: p.max_price,
+            priceUndercutAmount: p.undercut_amount,
+            game_id: p.game_id,
+            item_type_id: p.item_type_id,
+            item_info_group_id: p.item_info_group_id,
+            item_info_id: p.item_info_id,
+            isActive: p.is_active,
+            cron_interval_minutes: p.cron_interval_minutes,
+            rivalStoreName: p.rival_store_name,
+            status: 'idle',
+            message: 'logic.waiting',
+          }));
         }
 
         const productsWithLogs = await loadExistingLogs(user.id, initialProducts);
@@ -213,17 +175,12 @@ const useUserData = () => {
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'product_logs',
+          table: 'logs',
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          const newLogData = payload.new.log_data as ProductStatus;
-          if (newLogData) {
-            updateProductsWithResults([newLogData]);
-            if (newLogData.message !== 'logic.cheapestOptimal') {
-              const message = `${newLogData.name}: ${formatMessage(newLogData.message, newLogData.messageParams)}`;
-              addLog(message, payload.new.created_at);
-            }
+          if (payload.new.message) {
+             addLog(payload.new.message, payload.new.created_at);
           }
         }
       )
@@ -236,13 +193,13 @@ const useUserData = () => {
         clearInterval(configPollingInterval);
       }
     };
-  }, [user, updateProductsWithResults, addLog, loadExistingLogs]);
+  }, [user, addLog, loadExistingLogs]);
 
   const saveConfig = async (newConfig: Partial<UserConfig>) => {
     if (!user) return false;
     try {
       const { error } = await supabase
-        .from('user_configurations')
+        .from('configurations')
         .upsert({
           user_id: user.id,
           ...newConfig,
@@ -276,55 +233,48 @@ const useUserData = () => {
         item_info_id: product.item_info_id,
         is_active: existingProduct ? existingProduct.isActive : true,
         cron_interval_minutes: product.cron_interval_minutes,
-        rival_store_name: product.rivalStoreName || null, // Save new field
+        rival_store_name: product.rivalStoreName || null,
         updated_at: new Date().toISOString(),
       };
       
       const { data: upsertResult, error: upsertError } = await supabase
-        .from('products') // Menggunakan nama tabel yang benar
+        .from('products')
         .upsert(productData, { onConflict: 'user_id,product_id' })
-        .select('*, price_war_counter, price_war_last_reset_at'); // Select all fields including tracking fields
+        .select('*');
 
       if (upsertError) {
         showError(`Failed to save product: ${upsertError.message}`);
         throw upsertError;
       }
       
-      const updatedProductData = upsertResult?.[0];
-
-      if (!updatedProductData) {
-        showError('Failed to retrieve updated product data from Supabase.');
-        throw new Error('No data returned after product upsert.');
-      }
-      
-      if (updatedProductData) {
+      if (upsertResult?.[0]) {
+        const updated = upsertResult[0];
         setProducts(prev => {
-          const existingIndex = prev.findIndex(p => p.product_id === updatedProductData.product_id);
-          const newProductStatus: ProductStatus = {
-            product_id: updatedProductData.product_id,
-            name: updatedProductData.name,
-            category: updatedProductData.category,
-            minPrice: updatedProductData.min_price,
-            maxPrice: updatedProductData.max_price,
-            priceUndercutAmount: updatedProductData.undercut_amount,
-            game_id: updatedProductData.game_id,
-            item_type_id: updatedProductData.item_type_id,
-            item_info_group_id: updatedProductData.item_info_group_id,
-            item_info_id: updatedProductData.item_info_id,
-            isActive: updatedProductData.is_active,
-            cron_interval_minutes: updatedProductData.cron_interval_minutes,
-            rivalStoreName: updatedProductData.rival_store_name, // Load new field
+          const existingIndex = prev.findIndex(p => p.product_id === updated.product_id);
+          const newStatus: ProductStatus = {
+            product_id: updated.product_id,
+            name: updated.name,
+            category: updated.category,
+            minPrice: updated.min_price,
+            maxPrice: updated.max_price,
+            priceUndercutAmount: updated.undercut_amount,
+            game_id: updated.game_id,
+            item_type_id: updated.item_type_id,
+            item_info_group_id: updated.item_info_group_id,
+            item_info_id: updated.item_info_id,
+            isActive: updated.is_active,
+            cron_interval_minutes: updated.cron_interval_minutes,
+            rivalStoreName: updated.rival_store_name,
             status: 'idle',
             message: 'logic.waiting',
           };
 
           if (existingIndex > -1) {
-            const updated = [...prev];
-            updated[existingIndex] = { ...updated[existingIndex], ...newProductStatus };
-            return updated;
-          } else {
-            return [newProductStatus, ...prev];
+            const list = [...prev];
+            list[existingIndex] = { ...list[existingIndex], ...newStatus };
+            return list;
           }
+          return [newStatus, ...prev];
         });
       }
       return true;
@@ -338,7 +288,7 @@ const useUserData = () => {
     if (!user) return false;
     try {
       const { error } = await supabase
-        .from('products') // Menggunakan nama tabel yang benar
+        .from('products')
         .delete()
         .eq('user_id', user.id)
         .eq('product_id', productId);
@@ -353,34 +303,22 @@ const useUserData = () => {
   };
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
-    if (!user || updates.length === 0) {
-      return false;
-    }
+    if (!user || updates.length === 0) return false;
     try {
-      const updatePromises = updates.map(({ productId, isActive }) =>
+      const promises = updates.map(({ productId, isActive }) =>
         supabase
-          .from('products') // Menggunakan nama tabel yang benar
-          .update({
-            is_active: isActive,
-            updated_at: new Date().toISOString()
-          })
+          .from('products')
+          .update({ is_active: isActive, updated_at: new Date().toISOString() })
           .eq('user_id', user.id)
           .eq('product_id', productId)
       );
 
-      const results = await Promise.all(updatePromises);
-      const errors = results.filter(result => result.error);
-      if (errors.length > 0) {
-        throw new Error('Some product updates failed.');
-      }
+      const results = await Promise.all(promises);
+      if (results.some(r => r.error)) throw new Error('Some updates failed');
 
       setProducts(prev => {
-        const updatesMap = new Map(updates.map(u => [u.productId, u.isActive]));
-        return prev.map(p =>
-          updatesMap.has(p.product_id)
-            ? { ...p, isActive: updatesMap.get(p.product_id)! }
-            : p
-        );
+        const map = new Map(updates.map(u => [u.productId, u.isActive]));
+        return prev.map(p => map.has(p.product_id) ? { ...p, isActive: map.get(p.product_id)! } : p);
       });
       return true;
     } catch (error) {
@@ -404,39 +342,20 @@ const useUserData = () => {
         body: { user_id: user.id, product_id: productId },
       });
 
-      if (error) {
-        const errorMessage = error.message || 'Unknown error';
-        showError(`Gagal memproses produk: ${errorMessage}`);
-        setProducts(prev => prev.map(p => 
-          p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
-        ));
-        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`, new Date().toISOString());
-        return;
-      }
+      if (error) throw error;
 
       if (data && data.result) {
         updateProductsWithResults([data.result]);
         showSuccess(`Produk ${data.result.name} berhasil diproses.`);
-        if (data.result.message !== 'logic.cheapestOptimal') {
-          const message = `${data.result.name}: ${formatMessage(data.result.message, data.result.messageParams)}`;
-          addLog(message, new Date().toISOString());
-        }
-      } else {
-        showError('Respon tidak valid dari server.');
-        setProducts(prev => prev.map(p => 
-          p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage: 'Respon tidak valid' } } : p
-        ));
-        addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage: 'Respon tidak valid dari server.' })}`, new Date().toISOString());
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      showError(`Terjadi kesalahan saat memproses produk: ${errorMessage}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      showError(`Gagal memproses: ${msg}`);
       setProducts(prev => prev.map(p => 
-        p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed', messageParams: { errorMessage } } : p
+        p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p
       ));
-      addLog(`${new Date().toLocaleTimeString()}: Product ID ${productId}: ${formatMessage('logic.processFailed', { errorMessage })}`, new Date().toISOString());
     }
-  }, [user, updateProductsWithResults, addLog]);
+  }, [user, updateProductsWithResults]);
 
   return {
     config,
