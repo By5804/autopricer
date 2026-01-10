@@ -50,8 +50,10 @@ export const Products = () => {
     showSuccess('Starting manual sync for all active products...');
     
     try {
-      // Panggil endpoint penjadwal secara manual
-      const { data, error } = await supabase.functions.invoke('cron-scheduler');
+      // Panggil endpoint penjadwal dengan parameter force: true
+      const { data, error } = await supabase.functions.invoke('cron-scheduler', {
+        body: { force: true }
+      });
       if (error) throw error;
       showSuccess('Manual sync triggered successfully.');
     } catch (err) {
@@ -105,7 +107,6 @@ export const Products = () => {
   const handleExpandAll = () => setOpenCategories(sortedCategories);
   const handleCollapseAll = () => setOpenCategories([]);
 
-  // Menampilkan semua log tanpa filter
   const allLogs = logs;
 
   if (userDataLoading) {

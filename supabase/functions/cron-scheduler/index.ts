@@ -76,7 +76,15 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Ambil produk yang perlu diproses dari tabel 'user_products' (BUKAN 'products')
+    // Cek apakah ada parameter 'force' di body request
+    let force = false;
+    try {
+      const body = await req.json();
+      force = body.force === true;
+    } catch (e) {
+      // Body kosong atau bukan JSON, abaikan
+    }
+
     const { data: productsToProcess, error } = await supabaseAdmin
       .from('user_products')
       .select('user_id, product_id, cron_last_run_at, cron_interval_minutes')
@@ -86,6 +94,9 @@ serve(async (req) => {
 
     const now = new Date();
     const filteredProducts = (productsToProcess || []).filter(p => {
+      // Jika 'force' aktif, abaikan pengecekan interval
+      if (force) return true;
+      
       if (!p.cron_last_run_at) return true;
       const lastRun = new Date(p.cron_last_run_at);
       const interval = p.cron_interval_minutes || 15;
@@ -102,13 +113,11 @@ serve(async (req) => {
     const productIdsToUpdate = filteredProducts.map(p => p.product_id);
     const userIdsToUpdate = [...new Set(filteredProducts.map(p => p.user_id))];
 
-    // Perbarui timestamp produk di 'user_products'
     await supabaseAdmin
       .from('user_products')
       .update({ cron_last_run_at: timestamp })
       .in('product_id', productIdsToUpdate);
 
-    // Perbarui timestamp konfigurasi di 'user_configurations'
     await supabaseAdmin
       .from('user_configurations')
       .update({ cron_last_run_at: timestamp })
