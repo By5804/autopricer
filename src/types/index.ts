@@ -5,18 +5,19 @@ export interface Product {
   minPrice: number;
   maxPrice: number;
   priceUndercutAmount?: number;
+  price_war_undercut_amount?: number; // Field baru
   game_id: number;
   item_type_id: number;
   item_info_group_id?: number;
   item_info_id: number;
   isActive: boolean;
-  cron_interval_minutes?: number; // New field
-  rivalStoreName?: string; // New field for price war tracking
+  cron_interval_minutes?: number;
+  rivalStoreName?: string;
 }
 
 export interface ProductStatus extends Product {
   status: 'idle' | 'loading' | 'success' | 'error' | 'updated';
-  message: string; // This will now be a translation key
+  message: string;
   messageParams?: Record<string, string | number | undefined>;
   myPrice?: number;
   competitorPrice?: number;

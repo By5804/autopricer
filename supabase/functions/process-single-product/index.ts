@@ -81,11 +81,12 @@ serve(async (req) => {
 });
 
 async function processProductLogic(supabaseAdmin: any, config: any, product: any) {
-  const { store_name, whitelist, undercut_amount: globalUndercutAmount, api_key, secret_key, price_war_trigger_count = 5, price_war_trigger_hours = 1 } = config;
+  const { store_name, whitelist, api_key, secret_key, undercut_amount: globalUndercutAmount, price_war_trigger_count = 5, price_war_trigger_hours = 1 } = config;
   const { 
     min_price: minPrice, 
     max_price: maxPrice, 
     undercut_amount: prodUndercutAmount,
+    price_war_undercut_amount: priceWarUndercutAmount,
     rival_store_name: rivalStoreName,
     price_war_counter: currentCounter = 0,
     price_war_last_reset_at: lastResetAt
@@ -99,6 +100,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
   let priceWarLastResetAt = lastResetAt;
 
   const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
+  const warUndercutValue = Math.max(10, Number(priceWarUndercutAmount) || 50);
   const whitelistedStores = whitelist ? whitelist.split(',').map((name: string) => name.trim().toLowerCase()) : [];
 
   const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`;
@@ -116,18 +118,16 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (myProduct) {
       myPrice = myProduct.price;
       myStock = myProduct.stock;
-      // Perbaikan pengambilan sold count dengan mencari di semua field yang mungkin digunakan Itemku
-      mySoldCount = myProduct.total_sold !== undefined ? myProduct.total_sold : 
-                   (myProduct.sold_count !== undefined ? myProduct.sold_count : 
-                   (myProduct.item_sold_count !== undefined ? myProduct.item_sold_count : 
-                   (myProduct.total_item_sold !== undefined ? myProduct.total_item_sold : 0)));
+      // Perbaikan My Sold: Itemku sering menyimpan di 'item_sold_count' atau 'total_sold'
+      mySoldCount = myProduct.item_sold_count ?? myProduct.total_sold ?? myProduct.sold_count ?? 0;
     }
 
     if (myIndex === -1) {
       message = 'logic.outOfStock';
       status = 'error';
     } else {
-      // Deteksi Underpricecut / Perang Harga dengan ambang batas dinamis
+      // Deteksi Underpricecut / Perang Harga
+      let isWarMode = false;
       if (rivalStoreName) {
         const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
         const rivalIndex = rivalProduct ? competitorList.indexOf(rivalProduct) : -1;
@@ -136,27 +136,29 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
         const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
 
-        // Reset counter jika jendela waktu sudah lewat
         if (now.getTime() - lastReset.getTime() >= timeLimitMs) {
           priceWarCounter = 0;
           priceWarLastResetAt = now.toISOString();
         }
 
-        // Jika rival lebih murah dari saya, tambah counter
         if (rivalIndex !== -1 && rivalIndex < myIndex) {
           priceWarCounter += 1;
         }
 
-        // Jika counter mencapai ambang batas, aktifkan mode perang
         if (priceWarCounter >= price_war_trigger_count) {
-          newPrice = minPrice;
+          isWarMode = true;
+          // Gunakan nominal undercut khusus perang harga terhadap rival
+          newPrice = roundPrice(rivalProduct.price - warUndercutValue);
           message = 'logic.priceWarDetected';
           messageParams = { rivalStoreName, minPrice: minPrice.toLocaleString('id-ID') };
           status = 'updated'; 
+          
+          competitorPrice = rivalProduct.price;
+          competitorStoreName = rivalProduct.seller?.shop_name;
         }
       }
 
-      if (status !== 'updated') {
+      if (!isWarMode) {
         const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
         
         if (myIndex === 0) {
@@ -168,7 +170,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
             competitorPrice = p2.price;
             competitorStoreName = p2.seller?.shop_name;
             competitorStock = p2.stock;
-            competitorSoldCount = p2.total_sold ?? p2.sold_count ?? 0;
+            competitorSoldCount = p2.item_sold_count ?? p2.total_sold ?? 0;
 
             if (p2.price - myPrice > undercutValue + 90) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
@@ -182,14 +184,14 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           competitorPrice = target.price;
           competitorStoreName = target.seller?.shop_name;
           competitorStock = target.stock;
-          competitorSoldCount = target.total_sold ?? target.sold_count ?? 0;
+          competitorSoldCount = target.item_sold_count ?? target.total_sold ?? 0;
         } else {
           message = 'logic.holdPrice';
           const p1 = competitorList[0];
           competitorPrice = p1.price;
           competitorStoreName = p1.seller?.shop_name;
           competitorStock = p1.stock;
-          competitorSoldCount = p1.total_sold ?? p1.sold_count ?? 0;
+          competitorSoldCount = p1.item_sold_count ?? p1.total_sold ?? 0;
         }
         status = 'success';
       }
@@ -214,7 +216,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const upData = await upRes.json();
         if (upRes.ok && upData.success) {
           status = 'updated';
-          message = (message === 'logic.priceWarDetected') ? message : 'logic.updateSuccess';
+          message = (status === 'updated' && message === 'logic.priceWarDetected') ? message : 'logic.updateSuccess';
           messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
         } else {
           status = 'error';

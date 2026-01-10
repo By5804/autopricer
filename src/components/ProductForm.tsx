@@ -25,6 +25,10 @@ const productSchema = z.object({
     (val) => (val === "" || val === null || val === 0 ? undefined : val),
     z.coerce.number().min(10).optional()
   ),
+  price_war_undercut_amount: z.preprocess(
+    (val) => (val === "" || val === null || val === 0 ? undefined : val),
+    z.coerce.number().min(10).optional()
+  ),
   game_id: z.coerce.number().min(1, 'Game ID is required.'),
   item_type_id: z.coerce.number().min(1, 'Item Type ID is required.'),
   item_info_group_id: z.preprocess(
@@ -65,6 +69,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       minPrice: 0,
       maxPrice: 0,
       priceUndercutAmount: undefined,
+      price_war_undercut_amount: 50,
       game_id: 0,
       item_type_id: 0,
       item_info_group_id: undefined,
@@ -82,27 +87,12 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         ...productToEdit,
         category: productToEdit.category === null ? '' : productToEdit.category,
         priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
+        price_war_undercut_amount: productToEdit.price_war_undercut_amount === null ? 50 : productToEdit.price_war_undercut_amount,
         item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
         cron_interval_minutes: productToEdit.cron_interval_minutes === null ? undefined : productToEdit.cron_interval_minutes,
         rivalStoreName: productToEdit.rivalStoreName === null ? '' : productToEdit.rivalStoreName,
       };
       form.reset(cleanedProduct);
-    } else {
-      form.reset({
-        name: '',
-        category: '',
-        product_id: 0,
-        modalPrice: undefined,
-        minPrice: 0,
-        maxPrice: 0,
-        priceUndercutAmount: undefined,
-        game_id: 0,
-        item_type_id: 0,
-        item_info_group_id: undefined,
-        item_info_id: 0,
-        cron_interval_minutes: undefined,
-        rivalStoreName: '',
-      });
     }
   }, [productToEdit, form.reset]);
 
@@ -227,8 +217,16 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
           )} />
           <FormField control={form.control} name="priceUndercutAmount" render={({ field }) => (
             <FormItem>
-              <FormLabel>Price Undercut Amount (Optional)</FormLabel>
-              <FormControl><Input type="number" min="10" placeholder="Uses global setting if empty" {...field} /></FormControl>
+              <FormLabel>Price Undercut Amount (Normal)</FormLabel>
+              <FormControl><Input type="number" min="10" placeholder="10" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="price_war_undercut_amount" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Undercut Amount (Rival Price War)</FormLabel>
+              <FormControl><Input type="number" min="10" placeholder="50" {...field} /></FormControl>
+              <FormDescription>Digunakan saat rival banting harga.</FormDescription>
               <FormMessage />
             </FormItem>
           )} />
@@ -236,13 +234,6 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
             <FormItem>
               <FormLabel>Item Type ID</FormLabel>
               <FormControl><Input type="number" placeholder="e.g., 39" {...field} /></FormControl>
-              <FormMessage />
-            </FormItem>
-          )} />
-          <FormField control={form.control} name="item_info_group_id" render={({ field }) => (
-            <FormItem>
-              <FormLabel>Item Info Group ID (Optional)</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 4" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
@@ -265,7 +256,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
               <FormLabel>Underpricecut for rival store (Rival Name)</FormLabel>
               <FormControl><Input placeholder="e.g., Toko Rival A" {...field} /></FormControl>
               <FormDescription>
-                If set, this store triggers special price war logic (5 undercuts in 1 hour).
+                Jika diisi, toko ini akan memicu nominal undercut khusus di atas.
               </FormDescription>
               <FormMessage />
             </FormItem>
