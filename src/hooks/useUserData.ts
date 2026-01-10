@@ -171,22 +171,21 @@ const useUserData = () => {
         user_id: user.id,
         product_id: product.product_id,
         name: product.name,
-        category: product.category,
+        category: product.category || null,
         min_price: product.minPrice,
         max_price: product.maxPrice,
-        undercut_amount: product.priceUndercutAmount,
-        price_war_undercut_amount: product.price_war_undercut_amount,
+        undercut_amount: product.priceUndercutAmount ?? null,
+        price_war_undercut_amount: product.price_war_undercut_amount ?? null,
         game_id: product.game_id,
         item_type_id: product.item_type_id,
-        item_info_group_id: product.item_info_group_id,
+        item_info_group_id: product.item_info_group_id ?? null,
         item_info_id: product.item_info_id,
         is_active: existingProduct ? existingProduct.isActive : true,
-        cron_interval_minutes: product.cron_interval_minutes,
+        cron_interval_minutes: product.cron_interval_minutes ?? null,
         rival_store_name: product.rivalStoreName || null,
         updated_at: new Date().toISOString()
       };
 
-      // Tentukan target konflik berdasarkan data yang tersedia
       let conflictTarget = 'user_id,product_id';
       
       if (product.id) {
