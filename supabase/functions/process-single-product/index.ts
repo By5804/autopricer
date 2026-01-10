@@ -118,8 +118,10 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (myProduct) {
       myPrice = myProduct.price;
       myStock = myProduct.stock;
-      // Perbaikan pengambilan sold count: itemku terkadang menggunakan total_sold atau sold_count
-      mySoldCount = myProduct.total_sold ?? myProduct.sold_count ?? 0;
+      // Perbaikan pengambilan sold count dengan mencari di semua field yang mungkin
+      mySoldCount = myProduct.total_sold !== undefined ? myProduct.total_sold : 
+                   (myProduct.sold_count !== undefined ? myProduct.sold_count : 
+                   (myProduct.item_sold_count !== undefined ? myProduct.item_sold_count : 0));
     }
 
     if (myIndex === -1) {
@@ -151,11 +153,10 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           newPrice = minPrice;
           message = 'logic.priceWarDetected';
           messageParams = { rivalStoreName, minPrice: minPrice.toLocaleString('id-ID') };
-          status = 'updated'; // Kita ingin ini langsung update ke min
+          status = 'updated'; 
         }
       }
 
-      // Jika tidak sedang dalam perang harga yang baru dideteksi, gunakan logika normal
       if (status !== 'updated') {
         const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
         
@@ -168,7 +169,9 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
             competitorPrice = p2.price;
             competitorStoreName = p2.seller?.shop_name;
             competitorStock = p2.stock;
-            competitorSoldCount = p2.total_sold ?? p2.sold_count ?? 0;
+            competitorSoldCount = p2.total_sold !== undefined ? p2.total_sold : 
+                                 (p2.sold_count !== undefined ? p2.sold_count : 
+                                 (p2.item_sold_count !== undefined ? p2.item_sold_count : 0));
 
             if (p2.price - myPrice > undercutValue + 90) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
@@ -182,20 +185,23 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           competitorPrice = target.price;
           competitorStoreName = target.seller?.shop_name;
           competitorStock = target.stock;
-          competitorSoldCount = target.total_sold ?? target.sold_count ?? 0;
+          competitorSoldCount = target.total_sold !== undefined ? target.total_sold : 
+                               (target.sold_count !== undefined ? target.sold_count : 
+                               (target.item_sold_count !== undefined ? target.item_sold_count : 0));
         } else {
           message = 'logic.holdPrice';
           const p1 = competitorList[0];
           competitorPrice = p1.price;
           competitorStoreName = p1.seller?.shop_name;
           competitorStock = p1.stock;
-          competitorSoldCount = p1.total_sold ?? p1.sold_count ?? 0;
+          competitorSoldCount = p1.total_sold !== undefined ? p1.total_sold : 
+                               (p1.sold_count !== undefined ? p1.sold_count : 
+                               (p1.item_sold_count !== undefined ? p1.item_sold_count : 0));
         }
         status = 'success';
       }
     }
 
-    // Eksekusi update harga jika diperlukan
     if (newPrice !== null && newPrice !== myPrice) {
       if (newPrice < minPrice) {
         message = 'logic.violatesMinPrice';

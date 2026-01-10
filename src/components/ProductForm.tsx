@@ -200,7 +200,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
            <FormField control={form.control} name="game_id" render={({ field }) => (
             <FormItem>
               <FormLabel>Game ID</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 5" {...field} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g., 43" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
@@ -235,21 +235,21 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
           <FormField control={form.control} name="item_type_id" render={({ field }) => (
             <FormItem>
               <FormLabel>Item Type ID</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 10" {...field} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g., 39" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
           <FormField control={form.control} name="item_info_group_id" render={({ field }) => (
             <FormItem>
               <FormLabel>Item Info Group ID (Optional)</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 20" {...field} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g., 4" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
           <FormField control={form.control} name="item_info_id" render={({ field }) => (
             <FormItem>
               <FormLabel>Item Info ID</FormLabel>
-              <FormControl><Input type="number" placeholder="e.g., 30" {...field} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g., 7196" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
@@ -262,7 +262,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
           )} />
           <FormField control={form.control} name="rivalStoreName" render={({ field }) => (
             <FormItem className="md:col-span-2">
-              <FormLabel>Rival Store Name (Price War Target)</FormLabel>
+              <FormLabel>Underpricecut for rival store (Rival Name)</FormLabel>
               <FormControl><Input placeholder="e.g., Toko Rival A" {...field} /></FormControl>
               <FormDescription>
                 If set, this store triggers special price war logic (5 undercuts in 1 hour).
