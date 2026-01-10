@@ -6,69 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
-const NO_ACTION_MESSAGES = new Set([
-  "logic.cheapestOptimal", "logic.onlySellerAtMax", "logic.holdPrice",
-  "logic.allCompetitorsTooCheap", "logic.violatesMinPrice", "logic.violatesMaxPrice", "logic.holdAtMax", "logic.priceWarCooldown"
-]);
-
-const translations: Record<string, string> = {
-  "logic.waiting": "Waiting for process to start.", "logic.checking": "Checking price...",
-  "logic.processFailed": "Process failed. Check logs for details.", "logic.noCompetitor": "Error: Could not find any competitors for this product.",
-  "logic.outOfStock": "Error: Your product is not in the top 10 (out of stock or uncompetitive).", "logic.onlySellerSetMax": "You are the only seller. Setting price to max.",
-  "logic.onlySellerAtMax": "You are the only seller and already at max price.", "logic.maximizeProfit": "Maximizing profit against #2.",
-  "logic.cheapestOptimal": "You are the cheapest; price is optimal.", "logic.attackFromMax": "Attacking {{competitorStoreName}} (rank #{{rank}}) from max price.",
-  "logic.holdAtMax": "Holding at max price; no valid targets above.", "logic.undercutting": "Undercutting {{competitorStoreName}} (rank #{{rank}}).",
-  "logic.undercuttingNewTarget": "P1 is too cheap. Undercutting new target {{competitorStoreName}} (rank #{{rank}}).", "logic.allCompetitorsTooCheap": "All competitors are cheaper than your minimum price. Holding price.",
-  "logic.holdPrice": "Holding price; no valid non-whitelisted targets found above.", "logic.matchingWhitelist": "Matching whitelisted leader {{competitorStoreName}}.",
-  "logic.opportunisticMax": "P1 is too cheap, P3 is expensive. Setting to max price.", "logic.defendingVsP3": "Defending against {{competitorStoreName}} (rank #3).",
-  "logic.noP3SetMax": "P1 is too cheap and no P3 exists. Setting to max price.", "logic.profitMaximizationVsBelow": "Maximizing profit against competitor below you ({{competitorStoreName}}).",
-  "logic.updateSuccess": "Price updated successfully to Rp {{newPrice}}.", "logic.updateFail": "Update failed: {{errorMessage}}",
-  "logic.scrapeFail": "Scrape failed: {{errorMessage}}", "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
-  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
-  "logic.priceWarDetected": "Price war detected against {{rivalStoreName}}. Dropping price to minimum Rp {{minPrice}}.",
-  "logic.priceWarRecovery": "Price war recovery active. Matching P2 price Rp {{newPrice}}.",
-  "logic.priceWarCooldown": "Price war cooldown active against {{rivalStoreName}}. Holding minimum price Rp {{minPrice}}.",
-};
-
-const formatMessage = (key: string, params?: Record<string, string | number | undefined>): string => {
-  let message = translations[key] || key;
-  if (params) {
-    Object.entries(params).forEach(([paramKey, paramValue]) => {
-      if (paramValue !== undefined) message = message.replace(new RegExp(`{{${paramKey}}}`, 'g'), String(paramValue));
-    });
-  }
-  return message;
-};
-
-async function sendDiscordNotification(webhookUrl: string, messages: string[]) {
-  if (!webhookUrl || messages.length === 0) return;
-  const description = messages.join('\n');
-  const now = new Date();
-  const options: Intl.DateTimeFormatOptions = {
-    year: 'numeric', month: 'numeric', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta'
-  };
-  const formattedDateTime = new Intl.DateTimeFormat('id-ID', options).format(now);
-  const payload = {
-    username: "Itemku Pricer Bot", avatar_url: "https://www.itemku.com/assets/images/favicon.png",
-    embeds: [{
-      title: `Laporan Otomatisasi Harga - ${formattedDateTime}`, description, color: 3447003, timestamp: now.toISOString(),
-    }],
-  };
-  try {
-    const response = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!response.ok) {
-      console.error(`[Discord Webhook] Gagal mengirim notifikasi: ${response.status} ${response.statusText}`);
-    }
-  } catch (error) {
-    console.error(`[Discord Webhook] Error saat mengirim notifikasi: ${error.message}`);
-  }
-}
-
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     const supabaseAdmin = createClient(
@@ -76,99 +15,57 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Cek apakah ada parameter 'force' di body request
     let force = false;
     try {
       const body = await req.json();
       force = body.force === true;
-    } catch (e) {
-      // Body kosong atau bukan JSON, abaikan
+    } catch (e) { /* ignore */ }
+
+    let productsToProcess = [];
+
+    if (force) {
+      // Jika dipaksa, ambil semua produk aktif dari user yang menyalakan otomasi
+      const { data } = await supabaseAdmin
+        .from('user_products')
+        .select('user_id, product_id')
+        .eq('is_active', true);
+      productsToProcess = data || [];
+    } else {
+      // Gunakan fungsi SQL get_due_products yang sudah kita buat
+      const { data, error: rpcError } = await supabaseAdmin.rpc('get_due_products');
+      if (rpcError) throw rpcError;
+      productsToProcess = data || [];
     }
 
-    const { data: productsToProcess, error } = await supabaseAdmin
-      .from('user_products')
-      .select('user_id, product_id, cron_last_run_at, cron_interval_minutes')
-      .eq('is_active', true);
-
-    if (error) throw error;
-
-    const now = new Date();
-    const filteredProducts = (productsToProcess || []).filter(p => {
-      // Jika 'force' aktif, abaikan pengecekan interval
-      if (force) return true;
-      
-      if (!p.cron_last_run_at) return true;
-      const lastRun = new Date(p.cron_last_run_at);
-      const interval = p.cron_interval_minutes || 15;
-      return (now.getTime() - lastRun.getTime()) >= (interval * 60 * 1000);
-    });
-
-    if (filteredProducts.length === 0) {
-      return new Response(JSON.stringify({ message: "Tidak ada produk yang perlu diproses." }), {
+    if (productsToProcess.length === 0) {
+      return new Response(JSON.stringify({ message: "No products due for update." }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
       });
     }
 
-    const timestamp = now.toISOString();
-    const productIdsToUpdate = filteredProducts.map(p => p.product_id);
-    const userIdsToUpdate = [...new Set(filteredProducts.map(p => p.user_id))];
+    const now = new Date().toISOString();
+    const productIds = productsToProcess.map(p => p.product_id);
+    const userIds = [...new Set(productsToProcess.map(p => p.user_id))];
 
-    await supabaseAdmin
-      .from('user_products')
-      .update({ cron_last_run_at: timestamp })
-      .in('product_id', productIdsToUpdate);
+    // Update timestamp terakhir jalan
+    await supabaseAdmin.from('user_products').update({ cron_last_run_at: now }).in('product_id', productIds);
+    await supabaseAdmin.from('user_configurations').update({ cron_last_run_at: now }).in('user_id', userIds);
 
-    await supabaseAdmin
-      .from('user_configurations')
-      .update({ cron_last_run_at: timestamp })
-      .in('user_id', userIdsToUpdate);
-
-    const processingPromises = filteredProducts.map(product =>
+    // Jalankan pemrosesan secara paralel
+    const processingPromises = productsToProcess.map(product =>
       supabaseAdmin.functions.invoke('process-single-product', {
         body: { user_id: product.user_id, product_id: product.product_id },
       })
     );
 
-    const results = await Promise.allSettled(processingPromises);
-    const notificationsByUser = new Map<string, { webhookUrl: string, messages: string[] }>();
+    await Promise.allSettled(processingPromises);
 
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      const { user_id } = filteredProducts[i];
-
-      if (result.status === 'fulfilled' && result.value.data && result.value.data.status) {
-        const productResult = result.value.data;
-        const isNoActionMessage = NO_ACTION_MESSAGES.has(productResult.message);
-
-        if (!isNoActionMessage) {
-          if (!notificationsByUser.has(user_id)) {
-            const { data: config } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
-            if (config?.discord_webhook_url) {
-              notificationsByUser.set(user_id, { webhookUrl: config.discord_webhook_url, messages: [] });
-            }
-          }
-
-          const userData = notificationsByUser.get(user_id);
-          if (userData) {
-            const { data: prodData } = await supabaseAdmin.from('user_products').select('name').eq('product_id', filteredProducts[i].product_id).single();
-            const msg = formatMessage(productResult.message, productResult.messageParams);
-            const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
-            userData.messages.push(`${localTime}: ${prodData?.name || 'Unknown'}: ${msg}`);
-          }
-        }
-      }
-    }
-
-    for (const [_, userData] of notificationsByUser) {
-      await sendDiscordNotification(userData.webhookUrl, userData.messages);
-    }
-
-    return new Response(JSON.stringify({ message: `Memproses ${filteredProducts.length} produk.` }), {
+    return new Response(JSON.stringify({ message: `Processing ${productsToProcess.length} products.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
     });
 
-  } catch (error) {
-    console.error("Error pada penjadwal:", error);
+  } catch (error: any) {
+    console.error("[cron-scheduler] Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500,
     });
