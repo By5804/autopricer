@@ -33,7 +33,10 @@ const translations: Record<string, string> = {
   "logic.updateFail": "Update failed: {{errorMessage}}",
   "logic.scrapeFail": "Scrape failed: {{errorMessage}}",
   "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
-  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
+  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
+  "logic.priceWarDetected": "Price war detected against {{rivalStoreName}}. Dropping price to minimum Rp {{minPrice}}.",
+  "logic.priceWarRecovery": "Price war recovery active. Matching P2 price Rp {{newPrice}}.",
+  "logic.priceWarCooldown": "Price war cooldown active against {{rivalStoreName}}. Holding minimum price Rp {{minPrice}}.",
 };
 
 // formatMessage function (copied from src/utils/translations.ts)
@@ -72,8 +75,27 @@ async function fetchWithTimeout(resource, options = {}, timeout = 12000) { // 12
   }
 }
 
-async function processProductLogic(supabaseAdmin, config, product) {
+interface ProductData {
+  user_id: string;
+  product_id: number;
+  name: string;
+  category: string | null;
+  minPrice: number;
+  maxPrice: number;
+  priceUndercutAmount: number | null;
+  game_id: number;
+  item_type_id: number;
+  item_info_group_id: number | null;
+  item_info_id: number;
+  isActive: boolean;
+  rivalStoreName: string | null;
+  priceWarCounter: number;
+  priceWarLastResetAt: string | null;
+}
+
+async function processProductLogic(supabaseAdmin, config, product: ProductData) {
   const { user_id, api_key, secret_key, store_name, whitelist, undercut_amount: globalUndercutAmount } = config;
+  const { rivalStoreName, priceWarCounter, priceWarLastResetAt } = product;
   console.log(`[process-single-product] START Processing product: ${product.name} (ID: ${product.product_id}) for user: ${user_id}`);
   const startTime = Date.now();
 
@@ -89,6 +111,18 @@ async function processProductLogic(supabaseAdmin, config, product) {
   let message = '';
   let messageParams = {};
   let status = 'idle';
+
+  // Price War Tracking variables
+  let newPriceWarCounter = priceWarCounter;
+  let newPriceWarLastResetAt = priceWarLastResetAt;
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  const MAX_UNDERCUTS = 5;
+  const now = Date.now();
+  const rivalStoreNameLower = rivalStoreName ? rivalStoreName.toLowerCase() : null;
+  
+  // Check if price war cooldown/tracking window is active
+  const isPriceWarActive = priceWarLastResetAt && (now - new Date(priceWarLastResetAt).getTime() < ONE_HOUR_MS);
+  const isPriceWarTriggered = priceWarCounter >= MAX_UNDERCUTS;
 
   try {
     const undercutValue = Math.max(10, Number(product.priceUndercutAmount) || Number(globalUndercutAmount) || 10);
@@ -163,74 +197,207 @@ async function processProductLogic(supabaseAdmin, config, product) {
         message = 'logic.outOfStock';
         status = 'error';
         console.log(`[process-single-product] ${product.name} - My product not in top 10.`);
-      } else if (myProductIndex === 0) {
-          const p2 = competitorList[1];
-          if (p2) {
-              competitorPrice = p2.price;
-              competitorStoreName = p2.seller?.shop_name;
-              competitorStock = p2.stock;
-              competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
-          }
-          if (!p2) {
-              if (myPrice !== null && myPrice < product.maxPrice) {
-                  potentialNewPrice = product.maxPrice;
-                  message = 'logic.onlySellerSetMax';
-              } else {
-                  message = 'logic.onlySellerAtMax';
-              }
-          } else {
-              const priceDiff = p2.price - (myPrice ?? 0);
-              if (priceDiff > (undercutValue + 90)) {
-                  let tempPrice = roundPrice(p2.price - undercutValue);
-                  tempPrice = Math.min(tempPrice, product.maxPrice);
-                  if (myPrice !== null && tempPrice !== myPrice) {
-                      potentialNewPrice = tempPrice;
-                      message = 'logic.maximizeProfit';
-                  } else {
-                      message = 'logic.cheapestOptimal';
-                  }
-              } else {
-                  message = 'logic.cheapestOptimal';
-              }
-          }
-          status = 'success';
-      } else {
-          const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
-          if (target) {
-              potentialNewPrice = roundPrice(target.price - undercutValue);
-              message = 'logic.undercutting';
-              messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
-              competitorPrice = target.price;
-              competitorStoreName = target.seller?.shop_name;
-              competitorStock = target.stock;
-              competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count ?? 0;
-          } else {
-              const p1 = competitorList[0];
-              competitorPrice = p1.price;
-              competitorStoreName = p1.seller?.shop_name;
-              competitorStock = p1.stock;
-              competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
-              message = 'logic.holdPrice';
-          }
-          status = 'success';
-      }
+        
+        // Reset price war tracking if we are out of the top 10
+        newPriceWarCounter = 0;
+        newPriceWarLastResetAt = null;
 
-      if (potentialNewPrice !== null && potentialNewPrice !== myPrice) {
-          if (potentialNewPrice < product.minPrice) {
-              message = 'logic.violatesMinPrice';
-              messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
-              status = 'error';
-          } else if (potentialNewPrice > product.maxPrice) {
-              message = 'logic.violatesMaxPrice';
-              messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
-              status = 'error';
-          } else {
-              newPrice = potentialNewPrice;
-          }
+      } else {
+        // --- PRICE WAR LOGIC CHECK ---
+        const p1 = competitorList[0];
+        const p1StoreNameLower = p1?.seller?.shop_name?.toLowerCase();
+        const isRivalP1 = rivalStoreNameLower && p1StoreNameLower === rivalStoreNameLower;
+        
+        // 1. Check for Price War Trigger (5 undercuts in 1 hour)
+        if (rivalStoreNameLower && myProductIndex > 0 && isRivalP1) {
+            // Rival is P1 and cheaper than us (myProductIndex > 0)
+            if (!isPriceWarActive) {
+                // Start new tracking window
+                newPriceWarCounter = 1;
+                newPriceWarLastResetAt = new Date(now).toISOString();
+                console.log(`[PriceWar] Started tracking. Counter: 1`);
+            } else {
+                // Increment counter within the active window
+                newPriceWarCounter += 1;
+                console.log(`[PriceWar] Incrementing counter. Counter: ${newPriceWarCounter}`);
+            }
+        } else if (isPriceWarActive && rivalStoreNameLower) {
+            // If rival is not P1, but we are still in the tracking window, we don't reset the counter yet.
+            // We only reset if the 1 hour window expires or if the war is triggered.
+            console.log(`[PriceWar] Rival not P1. Holding counter: ${newPriceWarCounter}`);
+        } else {
+            // If no rival is set, or tracking window expired without triggering, reset counter
+            newPriceWarCounter = 0;
+            newPriceWarLastResetAt = null;
+        }
+
+        // Re-check trigger status after potential increment
+        const isPriceWarTriggeredNow = newPriceWarCounter >= MAX_UNDERCUTS;
+        
+        // 2. Execute Price War Strategy if Triggered or in Cooldown
+        if (isPriceWarTriggeredNow) {
+            // Strategy: Drop price to minPrice
+            potentialNewPrice = product.minPrice;
+            message = 'logic.priceWarDetected';
+            messageParams = { rivalStoreName: rivalStoreName, minPrice: product.minPrice };
+            status = 'success';
+            
+            // Ensure the tracking state reflects the triggered status for the cooldown period
+            // We keep the counter high and the reset time marks the start of the 1-hour cooldown.
+            newPriceWarCounter = MAX_UNDERCUTS; 
+            if (!priceWarLastResetAt) {
+                newPriceWarLastResetAt = new Date(now).toISOString();
+            }
+            console.log(`[PriceWar] Triggered! Setting price to minPrice: ${product.minPrice}`);
+
+        } else if (priceWarCounter >= MAX_UNDERCUTS && priceWarLastResetAt) {
+            // We were triggered previously, now checking for recovery/cooldown
+            const timeSinceTrigger = now - new Date(priceWarLastResetAt).getTime();
+            
+            if (timeSinceTrigger >= ONE_HOUR_MS) {
+                // Recovery time reached (1 hour passed since trigger)
+                
+                // Find P2 (second cheapest overall)
+                const p2 = competitorList[1];
+                
+                if (p2) {
+                    // Recovery Strategy: Chase P2 (match P2's price)
+                    potentialNewPrice = p2.price;
+                    message = 'logic.priceWarRecovery';
+                    messageParams = { newPrice: potentialNewPrice.toLocaleString('id-ID') };
+                    
+                    // Reset tracking state after recovery
+                    newPriceWarCounter = 0;
+                    newPriceWarLastResetAt = null;
+                    
+                    competitorPrice = p2.price;
+                    competitorStoreName = p2.seller?.shop_name;
+                    competitorStock = p2.stock;
+                    competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
+                    
+                    console.log(`[PriceWar] Recovery successful. Matching P2 price: ${potentialNewPrice}`);
+                } else {
+                    // If no P2 exists, revert to standard 'only seller' logic
+                    if (myPrice !== null && myPrice < product.maxPrice) {
+                        potentialNewPrice = product.maxPrice;
+                        message = 'logic.onlySellerSetMax';
+                    } else {
+                        message = 'logic.onlySellerAtMax';
+                    }
+                    newPriceWarCounter = 0;
+                    newPriceWarLastResetAt = null;
+                }
+                status = 'success';
+
+            } else {
+                // Cooldown period (less than 1 hour since trigger)
+                // Strategy: Hold price at minPrice
+                if (myPrice !== product.minPrice) {
+                    potentialNewPrice = product.minPrice;
+                }
+                message = 'logic.priceWarCooldown';
+                messageParams = { rivalStoreName: rivalStoreName, minPrice: product.minPrice };
+                status = 'success';
+                console.log(`[PriceWar] Cooldown active. Holding minPrice: ${product.minPrice}`);
+            }
+        }
+        
+        // 3. Execute Standard Logic if Price War is not active/triggered
+        if (!isPriceWarTriggeredNow && !(priceWarCounter >= MAX_UNDERCUTS && priceWarLastResetAt)) {
+            if (myProductIndex === 0) {
+                const p2 = competitorList[1];
+                if (p2) {
+                    competitorPrice = p2.price;
+                    competitorStoreName = p2.seller?.shop_name;
+                    competitorStock = p2.stock;
+                    competitorSoldCount = p2.order_record?.successful_order_count ?? p2.sold_count ?? 0;
+                }
+                if (!p2) {
+                    if (myPrice !== null && myPrice < product.maxPrice) {
+                        potentialNewPrice = product.maxPrice;
+                        message = 'logic.onlySellerSetMax';
+                    } else {
+                        message = 'logic.onlySellerAtMax';
+                    }
+                } else {
+                    const priceDiff = p2.price - (myPrice ?? 0);
+                    if (priceDiff > (undercutValue + 90)) {
+                        let tempPrice = roundPrice(p2.price - undercutValue);
+                        tempPrice = Math.min(tempPrice, product.maxPrice);
+                        if (myPrice !== null && tempPrice !== myPrice) {
+                            potentialNewPrice = tempPrice;
+                            message = 'logic.maximizeProfit';
+                        } else {
+                            message = 'logic.cheapestOptimal';
+                        }
+                    } else {
+                        message = 'logic.cheapestOptimal';
+                    }
+                }
+                status = 'success';
+            } else {
+                const target = competitorList.find((p, i) => i < myProductIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+                if (target) {
+                    potentialNewPrice = roundPrice(target.price - undercutValue);
+                    message = 'logic.undercutting';
+                    messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+                    competitorPrice = target.price;
+                    competitorStoreName = target.seller?.shop_name;
+                    competitorStock = target.stock;
+                    competitorSoldCount = target.order_record?.successful_order_count ?? target.sold_count ?? 0;
+                } else {
+                    const p1 = competitorList[0];
+                    competitorPrice = p1.price;
+                    competitorStoreName = p1.seller?.shop_name;
+                    competitorStock = p1.stock;
+                    competitorSoldCount = p1.order_record?.successful_order_count ?? p1.sold_count ?? 0;
+                    message = 'logic.holdPrice';
+                }
+                status = 'success';
+            }
+        }
+
+
+        // --- PRICE VALIDATION AND EXECUTION ---
+        if (potentialNewPrice !== null && potentialNewPrice !== myPrice) {
+            if (potentialNewPrice < product.minPrice) {
+                message = 'logic.violatesMinPrice';
+                messageParams = { proposedPrice: potentialNewPrice, minPrice: product.minPrice };
+                status = 'error';
+                newPrice = null; // Ensure no update happens if min price is violated
+            } else if (potentialNewPrice > product.maxPrice) {
+                message = 'logic.violatesMaxPrice';
+                messageParams = { proposedPrice: potentialNewPrice, maxPrice: product.maxPrice };
+                status = 'error';
+                newPrice = null; // Ensure no update happens if max price is violated
+            } else {
+                newPrice = potentialNewPrice;
+            }
+        }
       }
     }
 
-    console.log(`[process-single-product] ${product.name} - Calculated new price: ${newPrice}, message: ${message}. Time: ${Date.now() - startTime}ms`);
+    console.log(`[process-single-product] ${product.name} - Calculated new price: ${newPrice}, message: ${message}. Price War Counter: ${newPriceWarCounter}. Time: ${Date.now() - startTime}ms`);
+
+    // --- DATABASE UPDATE FOR PRICE WAR TRACKING ---
+    const trackingUpdatePayload: { price_war_counter: number; price_war_last_reset_at: string | null } = {
+        price_war_counter: newPriceWarCounter,
+        price_war_last_reset_at: newPriceWarLastResetAt,
+    };
+
+    const { error: trackingUpdateError } = await supabaseAdmin
+        .from('user_products')
+        .update(trackingUpdatePayload)
+        .eq('user_id', user_id)
+        .eq('product_id', product.product_id);
+
+    if (trackingUpdateError) {
+        console.error(`[process-single-product] Error updating price war tracking for product ${product.product_id}:`, trackingUpdateError);
+    } else {
+        console.log(`[process-single-product] Successfully updated price war tracking for product ${product.product_id}.`);
+    }
+    // --- END DATABASE UPDATE ---
+
 
     if (newPrice !== null) {
       console.log(`[process-single-product] ${product.name} - Before price update. Time: ${Date.now() - startTime}ms`);
@@ -285,73 +452,5 @@ async function processProductLogic(supabaseAdmin, config, product) {
     };
     console.log(`[process-single-product] END Processing product: ${product.name} (ID: ${product.product_id}). Total Time: ${Date.now() - startTime}ms`);
     return resultPayload;
-  }
-}
-
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-
-  try {
-    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
-    const { user_id, product_id } = await req.json();
-    console.log(`[process-single-product] Received request for user_id: ${user_id}, product_id: ${product_id}`);
-
-    if (!user_id || !product_id) {
-      return new Response(JSON.stringify({ error: 'user_id dan product_id diperlukan' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
-    const { data: config, error: configError } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
-
-    if (configError || !config) {
-      console.error(`[process-single-product] Configuration not found for user ${user_id}:`, configError);
-      return new Response(JSON.stringify({ error: `Konfigurasi tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    console.log(`[process-single-product] Configuration found for user ${user_id}.`);
-
-    const { data: productData, error: productDataError } = await supabaseAdmin
-      .from('user_products')
-      .select('*')
-      .eq('user_id', user_id)
-      .eq('product_id', product_id)
-      .single();
-
-    if (productDataError || !productData) {
-      console.error(`[process-single-product] Product ${product_id} not found for user ${user_id}:`, productDataError);
-      return new Response(JSON.stringify({ error: `Produk ${product_id} tidak ditemukan untuk pengguna ${user_id}` }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    console.log(`[process-single-product] Product data found for product ${product_id}.`);
-
-    const result = await processProductLogic(supabaseAdmin, config, {
-      name: productData.name,
-      category: productData.category,
-      product_id: productData.product_id,
-      minPrice: productData.min_price,
-      maxPrice: productData.max_price,
-      priceUndercutAmount: productData.undercut_amount,
-      game_id: productData.game_id,
-      item_type_id: productData.item_type_id,
-      item_info_group_id: productData.item_info_group_id,
-      item_info_id: productData.item_info_id,
-      isActive: productData.is_active,
-    });
-
-    const { error: logError } = await supabaseAdmin.from('product_logs').insert({ user_id, product_id: result.product_id, log_data: result });
-    if (logError) console.error(`[process-single-product] Error inserting log for product ${result.product_id}:`, logError);
-    else console.log(`[process-single-product] Successfully inserted log for product ${result.product_id}.`);
-
-    console.log(`[process-single-product] Process completed for product ${product_id} of user ${user_id}`);
-    return new Response(JSON.stringify({ message: `Proses selesai untuk produk ${product_id}`, result }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    });
-
-  } catch (error) {
-    console.error('[process-single-product] Error in main serve block:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    });
   }
 });

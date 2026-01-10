@@ -8,7 +8,7 @@ const corsHeaders = {
 
 const NO_ACTION_MESSAGES = new Set([
   "logic.cheapestOptimal", "logic.onlySellerAtMax", "logic.holdPrice",
-  "logic.allCompetitorsTooCheap", "logic.violatesMinPrice", "logic.violatesMaxPrice", "logic.holdAtMax"
+  "logic.allCompetitorsTooCheap", "logic.violatesMinPrice", "logic.violatesMaxPrice", "logic.holdAtMax", "logic.priceWarCooldown"
 ]);
 
 const translations: Record<string, string> = {
@@ -24,7 +24,10 @@ const translations: Record<string, string> = {
   "logic.noP3SetMax": "P1 is too cheap and no P3 exists. Setting to max price.", "logic.profitMaximizationVsBelow": "Maximizing profit against competitor below you ({{competitorStoreName}}).",
   "logic.updateSuccess": "Price updated successfully to Rp {{newPrice}}.", "logic.updateFail": "Update failed: {{errorMessage}}",
   "logic.scrapeFail": "Scrape failed: {{errorMessage}}", "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
-  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
+  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
+  "logic.priceWarDetected": "Price war detected against {{rivalStoreName}}. Dropping price to minimum Rp {{minPrice}}.",
+  "logic.priceWarRecovery": "Price war recovery active. Matching P2 price Rp {{newPrice}}.",
+  "logic.priceWarCooldown": "Price war cooldown active against {{rivalStoreName}}. Holding minimum price Rp {{minPrice}}.",
 };
 
 const formatMessage = (key: string, params?: Record<string, string | number | undefined>): string => {
@@ -117,7 +120,10 @@ serve(async (req) => {
       if (result.status === 'fulfilled' && result.value.data && result.value.data.result) {
         const productResult = result.value.data.result;
         
-        if (!NO_ACTION_MESSAGES.has(productResult.message)) {
+        // Exclude messages that indicate no action or optimal price
+        const isNoActionMessage = NO_ACTION_MESSAGES.has(productResult.message);
+
+        if (!isNoActionMessage) {
           if (!notificationsByUser.has(user_id)) {
             const { data: config } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
             if (config?.discord_webhook_url) {

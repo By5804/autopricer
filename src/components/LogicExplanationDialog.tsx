@@ -14,7 +14,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { HelpCircle, ShieldAlert, Crown, Swords, Info, TrendingUp } from "lucide-react";
+import { HelpCircle, ShieldAlert, Crown, Swords, Info, TrendingUp, Zap, ArrowDown } from "lucide-react";
 
 const LogicItem = ({ icon, title, children }: { icon: React.ReactNode, title: string, children: React.ReactNode }) => (
   <div className="flex items-start space-x-4">
@@ -43,6 +43,26 @@ export function LogicExplanationDialog() {
         </DialogHeader>
         <ScrollArea className="max-h-[70vh] pr-4">
           <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="item-0">
+              <AccordionTrigger>
+                <div className="flex items-center space-x-3">
+                  <Zap className="h-5 w-5 text-purple-500" />
+                  <span>Price War Strategy (Rival Store)</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-2">
+                <LogicItem icon={<ShieldAlert className="h-4 w-4" />} title="Detection">
+                  If a specific Rival Store (set per product) undercuts you 5 times within 1 hour, a Price War is detected.
+                </LogicItem>
+                <LogicItem icon={<ArrowDown className="h-4 w-4" />} title="Defensive Floor">
+                  Upon detection, your price is immediately dropped to your Minimum Price (Min Price) to discourage further undercutting.
+                </LogicItem>
+                <LogicItem icon={<TrendingUp className="h-4 w-4" />} title="Recovery">
+                  After 1 hour from the start of the Price War, if the Rival Store is no longer the cheapest, your price will recover by matching the price of the second cheapest competitor (P2).
+                </LogicItem>
+              </AccordionContent>
+            </AccordionItem>
+
             <AccordionItem value="item-1">
               <AccordionTrigger>
                 <div className="flex items-center space-x-3">

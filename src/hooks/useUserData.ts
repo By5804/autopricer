@@ -155,7 +155,7 @@ const useUserData = () => {
 
         const { data: productsData, error: productsError } = await supabase
           .from('user_products')
-          .select('*')
+          .select('*, price_war_counter, price_war_last_reset_at') // Select new tracking fields
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -179,6 +179,7 @@ const useUserData = () => {
               item_info_id: p.item_info_id,
               isActive: p.is_active,
               cron_interval_minutes: p.cron_interval_minutes,
+              rivalStoreName: p.rival_store_name, // Load new field
               status: 'idle',
               message: 'logic.waiting',
             };
@@ -275,13 +276,14 @@ const useUserData = () => {
         item_info_id: product.item_info_id,
         is_active: existingProduct ? existingProduct.isActive : true,
         cron_interval_minutes: product.cron_interval_minutes,
+        rival_store_name: product.rivalStoreName || null, // Save new field
         updated_at: new Date().toISOString(),
       };
       
       const { data: upsertResult, error: upsertError } = await supabase
         .from('user_products')
         .upsert(productData, { onConflict: 'user_id,product_id' })
-        .select('*');
+        .select('*, price_war_counter, price_war_last_reset_at'); // Select all fields including tracking fields
 
       if (upsertError) {
         showError(`Failed to save product: ${upsertError.message}`);
@@ -311,6 +313,7 @@ const useUserData = () => {
             item_info_id: updatedProductData.item_info_id,
             isActive: updatedProductData.is_active,
             cron_interval_minutes: updatedProductData.cron_interval_minutes,
+            rivalStoreName: updatedProductData.rival_store_name, // Load new field
             status: 'idle',
             message: 'logic.waiting',
           };

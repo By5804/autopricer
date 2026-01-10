@@ -11,6 +11,7 @@ export interface Product {
   item_info_id: number;
   isActive: boolean;
   cron_interval_minutes?: number; // New field
+  rivalStoreName?: string; // New field for price war tracking
 }
 
 export interface ProductStatus extends Product {

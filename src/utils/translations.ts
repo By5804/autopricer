@@ -23,7 +23,10 @@ const translations: Record<string, string> = {
   "logic.updateFail": "Update failed: {{errorMessage}}",
   "logic.scrapeFail": "Scrape failed: {{errorMessage}}",
   "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
-  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price."
+  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
+  "logic.priceWarDetected": "Price war detected against {{rivalStoreName}}. Dropping price to minimum Rp {{minPrice}}.",
+  "logic.priceWarRecovery": "Price war recovery active. Matching P2 price Rp {{newPrice}}.",
+  "logic.priceWarCooldown": "Price war cooldown active against {{rivalStoreName}}. Holding minimum price Rp {{minPrice}}.",
 };
 
 export const formatMessage = (key: string, params?: Record<string, string | number | undefined>): string => {

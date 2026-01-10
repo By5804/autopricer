@@ -36,6 +36,7 @@ const productSchema = z.object({
     (val) => (val === "" || val === null || val === 0 ? undefined : val),
     z.coerce.number().min(1).optional()
   ),
+  rivalStoreName: z.string().optional(), // New field
 }).refine(data => data.maxPrice >= data.minPrice, {
   message: 'Max price must be greater than or equal to min price.',
   path: ["maxPrice"],
@@ -69,6 +70,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
       item_info_group_id: undefined,
       item_info_id: 0,
       cron_interval_minutes: undefined,
+      rivalStoreName: '', // Default value
     },
   });
 
@@ -82,6 +84,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
         item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
         cron_interval_minutes: productToEdit.cron_interval_minutes === null ? undefined : productToEdit.cron_interval_minutes,
+        rivalStoreName: productToEdit.rivalStoreName === null ? '' : productToEdit.rivalStoreName, // Load new field
       };
       form.reset(cleanedProduct);
     } else {
@@ -98,6 +101,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
         item_info_group_id: undefined,
         item_info_id: 0,
         cron_interval_minutes: undefined,
+        rivalStoreName: '', // Reset new field
       });
     }
   }, [productToEdit, form.reset]);
@@ -254,6 +258,16 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
             <FormItem>
               <FormLabel>Custom Interval (minutes)</FormLabel>
               <FormControl><Input type="number" min="1" placeholder="Uses default if empty" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="rivalStoreName" render={({ field }) => (
+            <FormItem className="md:col-span-2">
+              <FormLabel>Rival Store Name (Price War Target)</FormLabel>
+              <FormControl><Input placeholder="e.g., Toko Rival A" {...field} /></FormControl>
+              <FormDescription>
+                If set, this store triggers special price war logic (5 undercuts in 1 hour).
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )} />
