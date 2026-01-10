@@ -85,14 +85,14 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
     if (productToEdit) {
       const cleanedProduct = {
         ...productToEdit,
-        category: productToEdit.category === null ? '' : productToEdit.category,
-        priceUndercutAmount: productToEdit.priceUndercutAmount === null ? undefined : productToEdit.priceUndercutAmount,
-        price_war_undercut_amount: productToEdit.price_war_undercut_amount === null ? 50 : productToEdit.price_war_undercut_amount,
-        item_info_group_id: productToEdit.item_info_group_id === null ? undefined : productToEdit.item_info_group_id,
-        cron_interval_minutes: productToEdit.cron_interval_minutes === null ? undefined : productToEdit.cron_interval_minutes,
-        rivalStoreName: productToEdit.rivalStoreName === null ? '' : productToEdit.rivalStoreName,
+        category: productToEdit.category ?? '',
+        priceUndercutAmount: productToEdit.priceUndercutAmount ?? undefined,
+        price_war_undercut_amount: productToEdit.price_war_undercut_amount ?? 50,
+        item_info_group_id: productToEdit.item_info_group_id ?? undefined,
+        cron_interval_minutes: productToEdit.cron_interval_minutes ?? undefined,
+        rivalStoreName: productToEdit.rivalStoreName ?? '',
       };
-      form.reset(cleanedProduct);
+      form.reset(cleanedProduct as ProductFormData);
     }
   }, [productToEdit, form.reset]);
 
@@ -219,6 +219,7 @@ export function ProductForm({ onSubmit, productToEdit }: ProductFormProps) {
             <FormItem>
               <FormLabel>Price Undercut Amount (Normal)</FormLabel>
               <FormControl><Input type="number" min="10" placeholder="10" {...field} value={field.value ?? ""} /></FormControl>
+              <FormDescription>Kosongkan untuk menggunakan Global Undercut.</FormDescription>
               <FormMessage />
             </FormItem>
           )} />
