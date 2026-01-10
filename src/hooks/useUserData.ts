@@ -54,19 +54,21 @@ const useUserData = () => {
       return prev.map(p => {
         const newResult = resultsMap.get(p.product_id);
         if (!newResult) return p;
+        
+        // Menggunakan pengecekan eksplisit agar angka 0 tidak hilang
         return { 
           ...p, 
-          status: newResult.status || newResult.last_status,
-          message: newResult.message || newResult.last_message,
-          messageParams: newResult.messageParams || newResult.last_message_params,
-          myPrice: newResult.myPrice || newResult.last_my_price,
-          myStock: newResult.myStock || newResult.last_my_stock,
-          mySoldCount: newResult.mySoldCount || newResult.last_my_sold_count,
-          competitorPrice: newResult.competitorPrice || newResult.last_competitor_price,
-          competitorStoreName: newResult.competitorStoreName || newResult.last_competitor_store_name,
-          competitorStock: newResult.competitorStock || newResult.last_competitor_stock,
-          competitorSoldCount: newResult.competitorSoldCount || newResult.last_competitor_sold_count,
-          newPrice: newResult.newPrice || newResult.proposed_price,
+          status: newResult.status || newResult.last_status || p.status,
+          message: newResult.message || newResult.last_message || p.message,
+          messageParams: newResult.messageParams || newResult.last_message_params || p.messageParams,
+          myPrice: newResult.myPrice !== undefined ? newResult.myPrice : (newResult.last_my_price !== undefined ? newResult.last_my_price : p.myPrice),
+          myStock: newResult.myStock !== undefined ? newResult.myStock : (newResult.last_my_stock !== undefined ? newResult.last_my_stock : p.myStock),
+          mySoldCount: newResult.mySoldCount !== undefined ? newResult.mySoldCount : (newResult.last_my_sold_count !== undefined ? newResult.last_my_sold_count : p.mySoldCount),
+          competitorPrice: newResult.competitorPrice !== undefined ? newResult.competitorPrice : (newResult.last_competitor_price !== undefined ? newResult.last_competitor_price : p.competitorPrice),
+          competitorStoreName: newResult.competitorStoreName || newResult.last_competitor_store_name || p.competitorStoreName,
+          competitorStock: newResult.competitorStock !== undefined ? newResult.competitorStock : (newResult.last_competitor_stock !== undefined ? newResult.last_competitor_stock : p.competitorStock),
+          competitorSoldCount: newResult.competitorSoldCount !== undefined ? newResult.competitorSoldCount : (newResult.last_competitor_sold_count !== undefined ? newResult.last_competitor_sold_count : p.competitorSoldCount),
+          newPrice: newResult.newPrice !== undefined ? newResult.newPrice : (newResult.proposed_price !== undefined ? newResult.proposed_price : p.newPrice),
         };
       });
     });

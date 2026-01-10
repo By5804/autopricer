@@ -77,7 +77,6 @@ serve(async (req) => {
   } catch (error: any) {
     console.error("[process-single-product] Error:", error.message);
     
-    // Pastikan status error tersimpan di database agar tidak 'Idle' selamanya
     if (userId && productId) {
       await supabaseAdmin.from('user_products').update({
         last_status: 'error',
@@ -117,7 +116,8 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (myProduct) {
       myPrice = myProduct.price;
       myStock = myProduct.stock;
-      mySoldCount = myProduct.total_sold;
+      // Mencoba beberapa kemungkinan nama field untuk total terjual
+      mySoldCount = myProduct.total_sold !== undefined ? myProduct.total_sold : (myProduct.sold_count !== undefined ? myProduct.sold_count : 0);
     }
 
     if (myIndex === -1) {
@@ -135,7 +135,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           competitorPrice = p2.price;
           competitorStoreName = p2.seller?.shop_name;
           competitorStock = p2.stock;
-          competitorSoldCount = p2.total_sold;
+          competitorSoldCount = p2.total_sold !== undefined ? p2.total_sold : (p2.sold_count !== undefined ? p2.sold_count : 0);
 
           if (p2.price - myPrice > undercutValue + 90) {
             newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
@@ -149,14 +149,14 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         competitorPrice = target.price;
         competitorStoreName = target.seller?.shop_name;
         competitorStock = target.stock;
-        competitorSoldCount = target.total_sold;
+        competitorSoldCount = target.total_sold !== undefined ? target.total_sold : (target.sold_count !== undefined ? target.sold_count : 0);
       } else {
         message = 'logic.holdPrice';
         const p1 = competitorList[0];
         competitorPrice = p1.price;
         competitorStoreName = p1.seller?.shop_name;
         competitorStock = p1.stock;
-        competitorSoldCount = p1.total_sold;
+        competitorSoldCount = p1.total_sold !== undefined ? p1.total_sold : (p1.sold_count !== undefined ? p1.sold_count : 0);
       }
       status = 'success';
     }
