@@ -85,6 +85,9 @@ export const Products = () => {
   const handleExpandAll = () => setOpenCategories(sortedCategories);
   const handleCollapseAll = () => setOpenCategories([]);
 
+  // Filter logs to exclude "price is optimal" (logic.cheapestOptimal)
+  const filteredLogs = logs.filter(log => log.message !== 'logic.cheapestOptimal');
+
   if (userDataLoading) {
     return (
       <div className="p-8 flex items-center justify-center">
@@ -208,7 +211,7 @@ export const Products = () => {
         />
       )}
 
-      {logs.length > 0 && (
+      {filteredLogs.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Recent Activity Logs</CardTitle>
@@ -216,8 +219,8 @@ export const Products = () => {
           </CardHeader>
           <CardContent>
             <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
-              {logs.map((log, index) => {
-                const prevLog = logs[index + 1];
+              {filteredLogs.map((log, index) => {
+                const prevLog = filteredLogs[index + 1];
                 const TIME_GAP_SECONDS = 60;
                 let showSeparator = false;
 
