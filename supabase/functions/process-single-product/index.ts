@@ -7,9 +7,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const roundPrice = (price) => Math.floor(price / 10) * 10;
+const roundPrice = (price: number) => Math.floor(price / 10) * 10;
 
-async function fetchWithTimeout(resource, options = {}, timeout = 12000) {
+async function fetchWithTimeout(resource: string, options = {}, timeout = 12000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
@@ -40,7 +40,7 @@ serve(async (req) => {
 
     const result = await processProductLogic(supabaseAdmin, config, product);
     
-    // Save everything including stock/sold info
+    // Simpan semua data hasil pemrosesan ke database
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
@@ -56,7 +56,7 @@ serve(async (req) => {
       updated_at: new Date().toISOString()
     }).eq('user_id', user_id).eq('product_id', product_id);
 
-    // Activity logging
+    // Catat ke log aktivitas
     await supabaseAdmin.from('product_logs').insert({
       user_id: user_id,
       product_id: product_id,
@@ -69,12 +69,13 @@ serve(async (req) => {
     });
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-  } catch (error) {
+  } catch (error: any) {
+    console.error("[process-single-product] Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
 
-async function processProductLogic(supabaseAdmin, config, product) {
+async function processProductLogic(supabaseAdmin: any, config: any, product: any) {
   const { store_name, whitelist, undercut_amount: globalUndercutAmount, api_key, secret_key } = config;
   const { min_price: minPrice, max_price: maxPrice, undercut_amount: prodUndercutAmount } = product;
   
@@ -84,7 +85,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
 
   try {
     const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
-    const whitelistedStores = whitelist ? whitelist.split(',').map(name => name.trim().toLowerCase()) : [];
+    const whitelistedStores = whitelist ? whitelist.split(',').map((name: string) => name.trim().toLowerCase()) : [];
 
     const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`;
     const response = await fetchWithTimeout(scrapeUrl, {}, 12000);
@@ -95,7 +96,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
       message = 'logic.noCompetitor';
       status = 'error';
     } else {
-      const myProduct = competitorList.find(p => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
+      const myProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
       const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1;
 
       if (myProduct) {
@@ -108,30 +109,46 @@ async function processProductLogic(supabaseAdmin, config, product) {
         message = 'logic.outOfStock';
         status = 'error';
       } else {
-        // Find best competitor to undercut
-        const target = competitorList.find((p, i) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+        // Cari target kompetitor terbaik untuk di-undercut (yang di atas kita dan tidak di-whitelist)
+        const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
         
         if (myIndex === 0) {
+          // Kita adalah yang termurah (Rank #1)
           const p2 = competitorList[1];
           if (!p2) {
             if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
             else message = 'logic.onlySellerAtMax';
           } else {
+            // Isi info kompetitor dengan Rank #2
+            competitorPrice = p2.price;
+            competitorStoreName = p2.seller?.shop_name;
+            competitorStock = p2.stock;
+            competitorSoldCount = p2.total_sold;
+
             if (p2.price - myPrice > undercutValue + 90) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
               message = 'logic.maximizeProfit';
             } else message = 'logic.cheapestOptimal';
           }
         } else if (target) {
+          // Ada kompetitor di atas kita yang bukan whitelist
           newPrice = roundPrice(target.price - undercutValue);
           message = 'logic.undercutting';
           messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+          
           competitorPrice = target.price;
           competitorStoreName = target.seller?.shop_name;
           competitorStock = target.stock;
           competitorSoldCount = target.total_sold;
         } else {
+          // Semua yang di atas kita masuk whitelist
           message = 'logic.holdPrice';
+          // Tampilkan info kompetitor termurah (P1)
+          const p1 = competitorList[0];
+          competitorPrice = p1.price;
+          competitorStoreName = p1.seller?.shop_name;
+          competitorStock = p1.stock;
+          competitorSoldCount = p1.total_sold;
         }
         status = 'success';
       }
@@ -143,7 +160,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
           status = 'error';
           newPrice = null;
         } else {
-          // Auth for update
+          // Lakukan update harga ke Itemku
           const nonce = Math.floor(Date.now() / 1000).toString();
           const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
           const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: newPrice }, key);
@@ -166,7 +183,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
         }
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     status = 'error'; message = 'logic.scrapeFail'; messageParams = { errorMessage: e.message };
   }
 
