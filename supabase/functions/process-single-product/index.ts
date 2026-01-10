@@ -30,17 +30,22 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   );
 
-  try {
-    const { user_id, product_id } = await req.json();
+  let userId = '';
+  let productId = 0;
 
-    const { data: config } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', user_id).single();
-    const { data: product } = await supabaseAdmin.from('user_products').select('*').eq('user_id', user_id).eq('product_id', product_id).single();
+  try {
+    const body = await req.json();
+    userId = body.user_id;
+    productId = body.product_id;
+
+    const { data: config } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', userId).single();
+    const { data: product } = await supabaseAdmin.from('user_products').select('*').eq('user_id', userId).eq('product_id', productId).single();
 
     if (!config || !product) throw new Error('Config or Product not found');
 
     const result = await processProductLogic(supabaseAdmin, config, product);
     
-    // Simpan semua data hasil pemrosesan ke database
+    // Simpan hasil ke database
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
@@ -54,12 +59,12 @@ serve(async (req) => {
       last_competitor_stock: result.competitorStock,
       last_competitor_sold_count: result.competitorSoldCount,
       updated_at: new Date().toISOString()
-    }).eq('user_id', user_id).eq('product_id', product_id);
+    }).eq('user_id', userId).eq('product_id', productId);
 
-    // Catat ke log aktivitas
+    // Catat log
     await supabaseAdmin.from('product_logs').insert({
-      user_id: user_id,
-      product_id: product_id,
+      user_id: userId,
+      product_id: productId,
       log_data: {
         message: result.message,
         messageParams: result.messageParams,
@@ -71,6 +76,17 @@ serve(async (req) => {
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error("[process-single-product] Error:", error.message);
+    
+    // Pastikan status error tersimpan di database agar tidak 'Idle' selamanya
+    if (userId && productId) {
+      await supabaseAdmin.from('user_products').update({
+        last_status: 'error',
+        last_message: 'logic.processFailed',
+        last_message_params: { errorMessage: error.message },
+        updated_at: new Date().toISOString()
+      }).eq('user_id', userId).eq('product_id', productId);
+    }
+
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
@@ -83,108 +99,96 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
   let competitorPrice = null, competitorStoreName = null, competitorStock = null, competitorSoldCount = null;
   let newPrice = null, message = 'logic.waiting', messageParams = {}, status = 'idle';
 
-  try {
-    const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
-    const whitelistedStores = whitelist ? whitelist.split(',').map((name: string) => name.trim().toLowerCase()) : [];
+  const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
+  const whitelistedStores = whitelist ? whitelist.split(',').map((name: string) => name.trim().toLowerCase()) : [];
 
-    const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`;
-    const response = await fetchWithTimeout(scrapeUrl, {}, 12000);
-    const data = await response.json();
-    const competitorList = data?.data?.data || [];
+  const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`;
+  const response = await fetchWithTimeout(scrapeUrl, {}, 12000);
+  const data = await response.json();
+  const competitorList = data?.data?.data || [];
 
-    if (competitorList.length === 0) {
-      message = 'logic.noCompetitor';
+  if (competitorList.length === 0) {
+    message = 'logic.noCompetitor';
+    status = 'error';
+  } else {
+    const myProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
+    const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1;
+
+    if (myProduct) {
+      myPrice = myProduct.price;
+      myStock = myProduct.stock;
+      mySoldCount = myProduct.total_sold;
+    }
+
+    if (myIndex === -1) {
+      message = 'logic.outOfStock';
       status = 'error';
     } else {
-      const myProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase());
-      const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1;
-
-      if (myProduct) {
-        myPrice = myProduct.price;
-        myStock = myProduct.stock;
-        mySoldCount = myProduct.total_sold;
-      }
-
-      if (myIndex === -1) {
-        message = 'logic.outOfStock';
-        status = 'error';
-      } else {
-        // Cari target kompetitor terbaik untuk di-undercut (yang di atas kita dan tidak di-whitelist)
-        const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
-        
-        if (myIndex === 0) {
-          // Kita adalah yang termurah (Rank #1)
-          const p2 = competitorList[1];
-          if (!p2) {
-            if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
-            else message = 'logic.onlySellerAtMax';
-          } else {
-            // Isi info kompetitor dengan Rank #2
-            competitorPrice = p2.price;
-            competitorStoreName = p2.seller?.shop_name;
-            competitorStock = p2.stock;
-            competitorSoldCount = p2.total_sold;
-
-            if (p2.price - myPrice > undercutValue + 90) {
-              newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
-              message = 'logic.maximizeProfit';
-            } else message = 'logic.cheapestOptimal';
-          }
-        } else if (target) {
-          // Ada kompetitor di atas kita yang bukan whitelist
-          newPrice = roundPrice(target.price - undercutValue);
-          message = 'logic.undercutting';
-          messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
-          
-          competitorPrice = target.price;
-          competitorStoreName = target.seller?.shop_name;
-          competitorStock = target.stock;
-          competitorSoldCount = target.total_sold;
+      const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
+      
+      if (myIndex === 0) {
+        const p2 = competitorList[1];
+        if (!p2) {
+          if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
+          else message = 'logic.onlySellerAtMax';
         } else {
-          // Semua yang di atas kita masuk whitelist
-          message = 'logic.holdPrice';
-          // Tampilkan info kompetitor termurah (P1)
-          const p1 = competitorList[0];
-          competitorPrice = p1.price;
-          competitorStoreName = p1.seller?.shop_name;
-          competitorStock = p1.stock;
-          competitorSoldCount = p1.total_sold;
+          competitorPrice = p2.price;
+          competitorStoreName = p2.seller?.shop_name;
+          competitorStock = p2.stock;
+          competitorSoldCount = p2.total_sold;
+
+          if (p2.price - myPrice > undercutValue + 90) {
+            newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
+            message = 'logic.maximizeProfit';
+          } else message = 'logic.cheapestOptimal';
         }
-        status = 'success';
+      } else if (target) {
+        newPrice = roundPrice(target.price - undercutValue);
+        message = 'logic.undercutting';
+        messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
+        competitorPrice = target.price;
+        competitorStoreName = target.seller?.shop_name;
+        competitorStock = target.stock;
+        competitorSoldCount = target.total_sold;
+      } else {
+        message = 'logic.holdPrice';
+        const p1 = competitorList[0];
+        competitorPrice = p1.price;
+        competitorStoreName = p1.seller?.shop_name;
+        competitorStock = p1.stock;
+        competitorSoldCount = p1.total_sold;
       }
+      status = 'success';
+    }
 
-      if (newPrice !== null && newPrice !== myPrice) {
-        if (newPrice < minPrice) {
-          message = 'logic.violatesMinPrice';
-          messageParams = { proposedPrice: newPrice, minPrice: minPrice };
-          status = 'error';
-          newPrice = null;
+    if (newPrice !== null && newPrice !== myPrice) {
+      if (newPrice < minPrice) {
+        message = 'logic.violatesMinPrice';
+        messageParams = { proposedPrice: newPrice, minPrice: minPrice };
+        status = 'error';
+        newPrice = null;
+      } else {
+        const nonce = Math.floor(Date.now() / 1000).toString();
+        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
+        const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: newPrice }, key);
+
+        const upRes = await fetch("https://tokoku-gateway.itemku.com/api/product/price/update", {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
+          body: JSON.stringify({ product_id: product.product_id, new_price: newPrice })
+        });
+        const upData = await upRes.json();
+        if (upRes.ok && upData.success) {
+          status = 'updated';
+          message = 'logic.updateSuccess';
+          messageParams = { newPrice: newPrice.toLocaleString('id-ID') };
         } else {
-          // Lakukan update harga ke Itemku
-          const nonce = Math.floor(Date.now() / 1000).toString();
-          const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
-          const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: newPrice }, key);
-
-          const upRes = await fetch("https://tokoku-gateway.itemku.com/api/product/price/update", {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
-            body: JSON.stringify({ product_id: product.product_id, new_price: newPrice })
-          });
-          const upData = await upRes.json();
-          if (upRes.ok && upData.success) {
-            status = 'updated';
-            message = 'logic.updateSuccess';
-            messageParams = { newPrice: newPrice.toLocaleString('id-ID') };
-          } else {
-            status = 'error';
-            message = 'logic.updateFail';
-            messageParams = { errorMessage: upData.message || 'Update failed' };
-          }
+          status = 'error';
+          message = 'logic.updateFail';
+          messageParams = { errorMessage: upData.message || 'Update failed' };
         }
       }
     }
-  } catch (e: any) {
-    status = 'error'; message = 'logic.scrapeFail'; messageParams = { errorMessage: e.message };
   }
 
   return { status, message, messageParams, myPrice, myStock, mySoldCount, newPrice, competitorPrice, competitorStoreName, competitorStock, competitorSoldCount };

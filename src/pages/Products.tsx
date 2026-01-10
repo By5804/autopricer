@@ -7,13 +7,14 @@ import { Dialog } from '@/components/ui/dialog';
 import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
-import { ChevronsDown, ChevronsUp } from 'lucide-react';
+import { ChevronsDown, ChevronsUp, Play, Loader2 } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { NextRunCountdown } from '@/components/NextRunCountdown';
 import { formatMessage } from '@/utils/translations';
+import { supabase } from '@/integrations/supabase/client';
 
 export const Products = () => {
   const { 
@@ -32,6 +33,7 @@ export const Products = () => {
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [openCategories, setOpenCategories] = useState<string[]>([]);
+  const [isProcessingAll, setIsProcessingAll] = useState(false);
 
   const handleActiveChange = async (productId: number, isActive: boolean) => {
     const success = await batchUpdateProductStatus([{ productId, isActive }]);
@@ -39,6 +41,24 @@ export const Products = () => {
       showSuccess(`Product status updated to ${isActive ? 'active' : 'inactive'}.`);
     } else {
       showError('Failed to update product status.');
+    }
+  };
+
+  const handleRunAll = async () => {
+    if (isProcessingAll) return;
+    setIsProcessingAll(true);
+    showSuccess('Starting manual sync for all active products...');
+    
+    try {
+      // Panggil endpoint penjadwal secara manual
+      const { data, error } = await supabase.functions.invoke('cron-scheduler');
+      if (error) throw error;
+      showSuccess('Manual sync triggered successfully.');
+    } catch (err) {
+      console.error(err);
+      showError('Failed to trigger manual sync.');
+    } finally {
+      setIsProcessingAll(false);
     }
   };
 
@@ -85,7 +105,6 @@ export const Products = () => {
   const handleExpandAll = () => setOpenCategories(sortedCategories);
   const handleCollapseAll = () => setOpenCategories([]);
 
-  // Filter logs to exclude "price is optimal" (logic.cheapestOptimal)
   const filteredLogs = logs.filter(log => log.message !== 'logic.cheapestOptimal');
 
   if (userDataLoading) {
@@ -105,6 +124,14 @@ export const Products = () => {
             <CardDescription>Add, edit, and manage products for price checking.</CardDescription>
           </div>
           <div className="flex items-center space-x-2">
+            <Button 
+              variant="outline" 
+              onClick={handleRunAll} 
+              disabled={isProcessingAll || products.filter(p => p.isActive).length === 0}
+            >
+              {isProcessingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+              Run All Now
+            </Button>
             <LogicExplanationDialog />
             <Button onClick={() => { setEditingProduct(null); setIsFormDialogOpen(true); }}>
               Add Product
