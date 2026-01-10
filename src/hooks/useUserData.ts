@@ -60,8 +60,12 @@ const useUserData = () => {
           message: newResult.message || newResult.last_message,
           messageParams: newResult.messageParams || newResult.last_message_params,
           myPrice: newResult.myPrice || newResult.last_my_price,
+          myStock: newResult.myStock || newResult.last_my_stock,
+          mySoldCount: newResult.mySoldCount || newResult.last_my_sold_count,
           competitorPrice: newResult.competitorPrice || newResult.last_competitor_price,
           competitorStoreName: newResult.competitorStoreName || newResult.last_competitor_store_name,
+          competitorStock: newResult.competitorStock || newResult.last_competitor_stock,
+          competitorSoldCount: newResult.competitorSoldCount || newResult.last_competitor_sold_count,
           newPrice: newResult.newPrice || newResult.proposed_price,
         };
       });
@@ -100,8 +104,12 @@ const useUserData = () => {
             message: p.last_message || 'logic.waiting',
             messageParams: p.last_message_params || {},
             myPrice: p.last_my_price,
+            myStock: p.last_my_stock,
+            mySoldCount: p.last_my_sold_count,
             competitorPrice: p.last_competitor_price,
             competitorStoreName: p.last_competitor_store_name,
+            competitorStock: p.last_competitor_stock,
+            competitorSoldCount: p.last_competitor_sold_count,
             newPrice: p.proposed_price,
           }));
           setProducts(initialProducts);
@@ -189,6 +197,13 @@ const useUserData = () => {
             status: data.last_status || 'idle',
             message: data.last_message || 'logic.waiting',
             messageParams: data.last_message_params || {},
+            myPrice: data.last_my_price,
+            myStock: data.last_my_stock,
+            mySoldCount: data.last_my_sold_count,
+            competitorPrice: data.last_competitor_price,
+            competitorStoreName: data.last_competitor_store_name,
+            competitorStock: data.last_competitor_stock,
+            competitorSoldCount: data.last_competitor_sold_count,
           };
           if (index > -1) { const list = [...prev]; list[index] = newProd; return list; }
           return [newProd, ...prev];

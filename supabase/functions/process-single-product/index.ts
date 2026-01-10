@@ -7,37 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const translations: Record<string, string> = {
-  "logic.waiting": "Waiting for process to start.",
-  "logic.checking": "Checking price...",
-  "logic.processFailed": "Process failed. Check logs for details.",
-  "logic.noCompetitor": "Error: Could not find any competitors for this product.",
-  "logic.outOfStock": "Error: Your product is not in the top 10 (out of stock or uncompetitive).",
-  "logic.onlySellerSetMax": "You are the only seller. Setting price to max.",
-  "logic.onlySellerAtMax": "You are the only seller and already at max price.",
-  "logic.maximizeProfit": "Maximizing profit against #2.",
-  "logic.cheapestOptimal": "You are the cheapest; price is optimal.",
-  "logic.attackFromMax": "Attacking {{competitorStoreName}} (rank #{{rank}}) from max price.",
-  "logic.holdAtMax": "Holding at max price; no valid targets above.",
-  "logic.undercutting": "Undercutting {{competitorStoreName}} (rank #{{rank}}).",
-  "logic.undercuttingNewTarget": "P1 is too cheap. Undercutting new target {{competitorStoreName}} (rank #{{rank}}).",
-  "logic.allCompetitorsTooCheap": "All competitors are cheaper than your minimum price. Holding price.",
-  "logic.holdPrice": "Holding price; no valid non-whitelisted targets found above.",
-  "logic.matchingWhitelist": "Matching whitelisted leader {{competitorStoreName}}.",
-  "logic.opportunisticMax": "P1 is too cheap, P3 is expensive. Setting to max price.",
-  "logic.defendingVsP3": "Defending against {{competitorStoreName}} (rank #3).",
-  "logic.noP3SetMax": "P1 is too cheap and no P3 exists. Setting to max price.",
-  "logic.profitMaximizationVsBelow": "Maximizing profit against competitor below you ({{competitorStoreName}}).",
-  "logic.updateSuccess": "Price updated successfully to Rp {{newPrice}}.",
-  "logic.updateFail": "Update failed: {{errorMessage}}",
-  "logic.scrapeFail": "Scrape failed: {{errorMessage}}",
-  "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
-  "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
-  "logic.priceWarDetected": "Price war detected against {{rivalStoreName}}. Dropping price to minimum Rp {{minPrice}}.",
-  "logic.priceWarRecovery": "Price war recovery active. Matching P2 price Rp {{newPrice}}.",
-  "logic.priceWarCooldown": "Price war cooldown active against {{rivalStoreName}}. Holding minimum price Rp {{minPrice}}.",
-};
-
 const roundPrice = (price) => Math.floor(price / 10) * 10;
 
 async function fetchWithTimeout(resource, options = {}, timeout = 12000) {
@@ -71,19 +40,23 @@ serve(async (req) => {
 
     const result = await processProductLogic(supabaseAdmin, config, product);
     
-    // Save the final result to user_products for syncing with frontend
+    // Save everything including stock/sold info
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
       last_message_params: result.messageParams,
       proposed_price: result.newPrice,
       last_my_price: result.myPrice,
+      last_my_stock: result.myStock,
+      last_my_sold_count: result.mySoldCount,
       last_competitor_price: result.competitorPrice,
       last_competitor_store_name: result.competitorStoreName,
+      last_competitor_stock: result.competitorStock,
+      last_competitor_sold_count: result.competitorSoldCount,
       updated_at: new Date().toISOString()
     }).eq('user_id', user_id).eq('product_id', product_id);
 
-    // Also log the activity
+    // Activity logging
     await supabaseAdmin.from('product_logs').insert({
       user_id: user_id,
       product_id: product_id,
@@ -103,10 +76,11 @@ serve(async (req) => {
 
 async function processProductLogic(supabaseAdmin, config, product) {
   const { store_name, whitelist, undercut_amount: globalUndercutAmount, api_key, secret_key } = config;
-  const { min_price: minPrice, max_price: maxPrice, undercut_amount: prodUndercutAmount, price_war_counter, price_war_last_reset_at, rival_store_name: rivalStoreName } = product;
+  const { min_price: minPrice, max_price: maxPrice, undercut_amount: prodUndercutAmount } = product;
   
-  let myPrice = null, myStock = null, mySoldCount = null, competitorPrice = null, competitorStoreName = null, competitorStock = null, competitorSoldCount = null, newPrice = null;
-  let message = 'logic.waiting', messageParams = {}, status = 'idle';
+  let myPrice = null, myStock = null, mySoldCount = null;
+  let competitorPrice = null, competitorStoreName = null, competitorStock = null, competitorSoldCount = null;
+  let newPrice = null, message = 'logic.waiting', messageParams = {}, status = 'idle';
 
   try {
     const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
@@ -127,31 +101,35 @@ async function processProductLogic(supabaseAdmin, config, product) {
       if (myProduct) {
         myPrice = myProduct.price;
         myStock = myProduct.stock;
+        mySoldCount = myProduct.total_sold;
       }
 
       if (myIndex === -1) {
         message = 'logic.outOfStock';
         status = 'error';
-      } else if (myIndex === 0) {
-        const p2 = competitorList[1];
-        if (!p2) {
-          if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
-          else message = 'logic.onlySellerAtMax';
-        } else {
-          if (p2.price - myPrice > undercutValue + 90) {
-            newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
-            message = 'logic.maximizeProfit';
-          } else message = 'logic.cheapestOptimal';
-        }
-        status = 'success';
       } else {
+        // Find best competitor to undercut
         const target = competitorList.find((p, i) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()));
-        if (target) {
+        
+        if (myIndex === 0) {
+          const p2 = competitorList[1];
+          if (!p2) {
+            if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
+            else message = 'logic.onlySellerAtMax';
+          } else {
+            if (p2.price - myPrice > undercutValue + 90) {
+              newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
+              message = 'logic.maximizeProfit';
+            } else message = 'logic.cheapestOptimal';
+          }
+        } else if (target) {
           newPrice = roundPrice(target.price - undercutValue);
           message = 'logic.undercutting';
           messageParams = { rank: competitorList.indexOf(target) + 1, competitorStoreName: target.seller?.shop_name };
           competitorPrice = target.price;
           competitorStoreName = target.seller?.shop_name;
+          competitorStock = target.stock;
+          competitorSoldCount = target.total_sold;
         } else {
           message = 'logic.holdPrice';
         }
@@ -165,6 +143,7 @@ async function processProductLogic(supabaseAdmin, config, product) {
           status = 'error';
           newPrice = null;
         } else {
+          // Auth for update
           const nonce = Math.floor(Date.now() / 1000).toString();
           const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
           const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: newPrice }, key);
@@ -191,5 +170,5 @@ async function processProductLogic(supabaseAdmin, config, product) {
     status = 'error'; message = 'logic.scrapeFail'; messageParams = { errorMessage: e.message };
   }
 
-  return { status, message, messageParams, myPrice, newPrice, competitorPrice, competitorStoreName };
+  return { status, message, messageParams, myPrice, myStock, mySoldCount, newPrice, competitorPrice, competitorStoreName, competitorStock, competitorSoldCount };
 }

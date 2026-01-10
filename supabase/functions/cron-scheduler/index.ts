@@ -76,15 +76,14 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Ambil produk yang perlu diproses
+    // Ambil produk yang perlu diproses dari tabel 'user_products' (BUKAN 'products')
     const { data: productsToProcess, error } = await supabaseAdmin
-      .from('products')
+      .from('user_products')
       .select('user_id, product_id, cron_last_run_at, cron_interval_minutes')
       .eq('is_active', true);
 
     if (error) throw error;
 
-    // Filter produk berdasarkan interval (logika sederhana)
     const now = new Date();
     const filteredProducts = (productsToProcess || []).filter(p => {
       if (!p.cron_last_run_at) return true;
@@ -103,16 +102,16 @@ serve(async (req) => {
     const productIdsToUpdate = filteredProducts.map(p => p.product_id);
     const userIdsToUpdate = [...new Set(filteredProducts.map(p => p.user_id))];
 
-    // Perbarui timestamp produk
+    // Perbarui timestamp produk di 'user_products'
     await supabaseAdmin
-      .from('products')
+      .from('user_products')
       .update({ cron_last_run_at: timestamp })
       .in('product_id', productIdsToUpdate);
 
-    // Perbarui timestamp konfigurasi pengguna
+    // Perbarui timestamp konfigurasi di 'user_configurations'
     await supabaseAdmin
-      .from('configurations')
-      .update({ last_cron_run: timestamp })
+      .from('user_configurations')
+      .update({ cron_last_run_at: timestamp })
       .in('user_id', userIdsToUpdate);
 
     const processingPromises = filteredProducts.map(product =>
@@ -128,13 +127,13 @@ serve(async (req) => {
       const result = results[i];
       const { user_id } = filteredProducts[i];
 
-      if (result.status === 'fulfilled' && result.value.data && result.value.data.result) {
-        const productResult = result.value.data.result;
+      if (result.status === 'fulfilled' && result.value.data && result.value.data.status) {
+        const productResult = result.value.data;
         const isNoActionMessage = NO_ACTION_MESSAGES.has(productResult.message);
 
         if (!isNoActionMessage) {
           if (!notificationsByUser.has(user_id)) {
-            const { data: config } = await supabaseAdmin.from('configurations').select('discord_webhook_url').eq('user_id', user_id).single();
+            const { data: config } = await supabaseAdmin.from('user_configurations').select('discord_webhook_url').eq('user_id', user_id).single();
             if (config?.discord_webhook_url) {
               notificationsByUser.set(user_id, { webhookUrl: config.discord_webhook_url, messages: [] });
             }
@@ -142,9 +141,10 @@ serve(async (req) => {
 
           const userData = notificationsByUser.get(user_id);
           if (userData) {
+            const { data: prodData } = await supabaseAdmin.from('user_products').select('name').eq('product_id', filteredProducts[i].product_id).single();
             const msg = formatMessage(productResult.message, productResult.messageParams);
             const localTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' });
-            userData.messages.push(`${localTime}: ${productResult.name}: ${msg}`);
+            userData.messages.push(`${localTime}: ${prodData?.name || 'Unknown'}: ${msg}`);
           }
         }
       }
