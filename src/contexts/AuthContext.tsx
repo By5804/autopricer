@@ -40,17 +40,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single()
+        .maybeSingle() // Menggunakan maybeSingle untuk menghindari error jika tidak ditemukan
         .then(({ data, error: profileError }) => {
           if (profileError) {
             console.error('Error fetching profile:', profileError);
             setError(`Gagal memuat profil pengguna: ${profileError.message}`);
             setProfile(null);
+          } else if (!data) {
+            // Jika data tidak ada, jangan set error tapi beri tahu user
+            console.warn('Profile not found for user:', userId);
+            setError('Profil tidak ditemukan. Silakan hubungi admin.');
+            setProfile(null);
           } else {
             setError(null);
             setProfile(data);
           }
-          if (loading) setLoading(false);
+          setLoading(false);
         });
     };
 
@@ -68,10 +73,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
+        setLoading(true);
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
         setError(null);
+        setLoading(false);
       }
     });
 
