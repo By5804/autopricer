@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const roundPrice = (price: number) => {
-  if (isNaN(price)) return 0;
+  if (isNaN(price) || price === null) return 0;
   return Math.floor(price / 10) * 10;
 };
 
@@ -31,7 +31,6 @@ const getSoldCount = (p: any) => {
 };
 
 serve(async (req) => {
-  // 1. Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -43,32 +42,31 @@ serve(async (req) => {
 
   let userId = '';
   let productId = 0;
+  let productName = 'Unknown Product';
 
   try {
-    // 2. Parse Request Body
     const body = await req.json().catch(() => ({}));
     userId = body.user_id;
     productId = body.product_id;
 
     if (!userId || !productId) {
-      throw new Error("Missing user_id or product_id in request body");
+      throw new Error("Missing user_id or product_id");
     }
 
-    console.log(`[process-single-product] Start: User ${userId}, Product ${productId}`);
-
-    // 3. Fetch Config & Product
     const { data: config, error: configErr } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', userId).maybeSingle();
     const { data: product, error: prodErr } = await supabaseAdmin.from('user_products').select('*').eq('user_id', userId).eq('product_id', productId).maybeSingle();
 
-    if (configErr || prodErr) throw new Error(`Database error: ${configErr?.message || prodErr?.message}`);
-    if (!config) throw new Error(`No configuration found for user ${userId}`);
-    if (!product) throw new Error(`No product found with ID ${productId}`);
+    if (configErr || prodErr) throw new Error(`Database fetch error: ${configErr?.message || prodErr?.message}`);
+    if (!config) throw new Error("User configuration not found");
+    if (!product) throw new Error(`Product ${productId} not found`);
 
-    // 4. Run Logic
+    productName = product.name;
+    console.log(`[process-single-product] Processing: ${productName} (${productId})`);
+
     const result = await processProductLogic(config, product);
     
-    // 5. Update Database
-    const { error: updateErr } = await supabaseAdmin.from('user_products').update({
+    // Update Product Record
+    await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
       last_message_params: result.messageParams || {},
@@ -85,43 +83,50 @@ serve(async (req) => {
       updated_at: new Date().toISOString()
     }).eq('user_id', userId).eq('product_id', productId);
 
-    if (updateErr) console.error("[process-single-product] DB Update Fail:", updateErr.message);
-
-    // 6. Insert Log
+    // Write Success/Business Error Log
     await supabaseAdmin.from('product_logs').insert({
       user_id: userId,
       product_id: productId,
       log_data: {
         message: result.message,
         messageParams: result.messageParams || {},
-        productName: product.name,
+        productName: productName,
         status: result.status
       }
     });
 
-    console.log(`[process-single-product] Success: ${product.name}`);
     return new Response(JSON.stringify(result), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
     });
 
   } catch (error: any) {
-    console.error("[process-single-product] Catch Block:", error.message);
+    console.error(`[process-single-product] Error for ${productName}:`, error.message);
     
-    // Attempt to log error to DB if possible
     if (userId && productId) {
-      try {
-        await supabaseAdmin.from('user_products').update({
-          last_status: 'error',
-          last_message: 'logic.processFailed',
-          last_message_params: { error: error.message },
-          updated_at: new Date().toISOString()
-        }).eq('user_id', userId).eq('product_id', productId);
-      } catch (e) { console.error("[process-single-product] Final DB Update Fail"); }
+      // Emergency DB Update
+      await supabaseAdmin.from('user_products').update({
+        last_status: 'error',
+        last_message: 'logic.processFailed',
+        last_message_params: { errorMessage: error.message },
+        updated_at: new Date().toISOString()
+      }).eq('user_id', userId).eq('product_id', productId).catch(() => {});
+
+      // Emergency Log Entry
+      await supabaseAdmin.from('product_logs').insert({
+        user_id: userId,
+        product_id: productId,
+        log_data: {
+          message: 'logic.processFailed',
+          messageParams: { errorMessage: error.message },
+          productName: productName,
+          status: 'error'
+        }
+      }).catch(() => {});
     }
 
     return new Response(JSON.stringify({ error: error.message, status: 'error' }), { 
-      status: 200, // Still 200 to allow client-side error handling
+      status: 200, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
   }
@@ -153,7 +158,7 @@ async function processProductLogic(config: any, product: any) {
   const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`;
   
   const response = await fetchWithTimeout(scrapeUrl);
-  if (!response.ok) throw new Error(`Itemku API Error: ${response.status}`);
+  if (!response.ok) throw new Error(`API Itemku Error: ${response.status}`);
   
   const data = await response.json();
   const competitorList = data?.data?.data || [];
