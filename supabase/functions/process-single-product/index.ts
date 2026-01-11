@@ -68,8 +68,9 @@ serve(async (req) => {
       newPrice: null
     }
 
-    // Cari produk kita di dalam daftar
-    let myProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase())
+    // Cari produk kita di dalam daftar dengan trim dan lowercase
+    const normalizedMyStore = store_name.trim().toLowerCase();
+    let myProduct = competitorList.find((p: any) => p.seller?.shop_name?.trim().toLowerCase() === normalizedMyStore)
     
     // --- FALLBACK SYNC ---
     // Jika tidak ditemukan di 50 besar, ambil data produk kita secara langsung via API Detail
@@ -101,7 +102,6 @@ serve(async (req) => {
       const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1
 
       if (myIndex === -1) {
-        // Produk tidak ada di 50 besar (out of stock atau harga terlalu mahal)
         const p1 = competitorList[0]
         result.competitorPrice = p1.price
         result.competitorStoreName = p1.seller?.shop_name
@@ -111,7 +111,6 @@ serve(async (req) => {
         result.status = 'error'
         result.message = 'logic.outOfStock'
       } else {
-        // Logika Paling Murah (Rank 1)
         if (myIndex === 0) {
           const p2 = competitorList[1]
           if (!p2) {
@@ -135,8 +134,7 @@ serve(async (req) => {
             }
           }
         } else {
-          // Cari target (orang pertama di atas kita yang bukan whitelist)
-          const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()))
+          const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.trim().toLowerCase()))
           
           const p1 = competitorList[0]
           const displayTarget = target || p1
@@ -147,8 +145,8 @@ serve(async (req) => {
           result.competitorSoldCount = getSoldCount(displayTarget)
 
           if (target) {
-            const targetName = target.seller?.shop_name?.toLowerCase() || ''
-            const isRival = rivalStore && targetName === rivalStore.toLowerCase()
+            const targetName = target.seller?.shop_name?.trim().toLowerCase() || ''
+            const isRival = rivalStore && targetName === rivalStore.trim().toLowerCase()
             const currentUndercut = isRival ? priceWarUndercut : normalUndercut
             
             result.newPrice = roundPrice(target.price - currentUndercut)
@@ -176,7 +174,6 @@ serve(async (req) => {
       }
     }
 
-    // Eksekusi Update Harga
     if (result.status === 'updated' && result.newPrice) {
       if (result.newPrice < minPrice) {
         const isWar = result.message === 'logic.priceWarDetected';
@@ -209,15 +206,15 @@ serve(async (req) => {
       }
     }
 
-    // Update Database dengan data yang berhasil didapat (termasuk dari fallback)
+    // Update Database - Pastikan menggunakan nilai terbaru (null safe)
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
-      last_message_params: result.messageParams || {},
-      proposed_price: result.newPrice || product.proposed_price,
-      last_my_price: result.myPrice || product.last_my_price,
+      last_message_params: result.last_message_params || result.messageParams || {},
+      proposed_price: result.newPrice !== null ? result.newPrice : product.proposed_price,
+      last_my_price: result.myPrice !== null ? result.myPrice : product.last_my_price,
       last_my_stock: result.myStock !== null ? result.myStock : product.last_my_stock,
-      last_my_sold_count: result.mySoldCount || product.last_my_sold_count,
+      last_my_sold_count: result.mySoldCount !== null ? result.mySoldCount : product.last_my_sold_count,
       last_competitor_price: result.competitorPrice,
       last_competitor_store_name: result.competitorStoreName,
       last_competitor_stock: result.competitorStock,
