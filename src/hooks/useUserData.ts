@@ -33,7 +33,7 @@ const useUserData = () => {
 
   const mapDbToProductStatus = useCallback((p: any): ProductStatus => ({
     id: p.id,
-    product_id: p.product_id,
+    product_id: Number(p.product_id),
     name: p.name,
     category: p.category,
     minPrice: p.min_price,
@@ -69,10 +69,8 @@ const useUserData = () => {
     };
     
     setLogs(prev => {
-      // Cek apakah log sudah ada berdasarkan timestamp dan nama produk
       const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (exists) return prev;
-      // Tambah ke paling atas dan batasi 200 log
       return [newLog, ...prev].slice(0, 200);
     });
   }, []);
@@ -111,9 +109,8 @@ const useUserData = () => {
 
     loadInitialData();
 
-    // Setup Realtime Channel
     const channel = supabase
-      .channel(`db-changes-${user.id}`)
+      .channel(`db-realtime-${user.id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
@@ -129,11 +126,12 @@ const useUserData = () => {
         filter: `user_id=eq.${user.id}` 
       }, (payload) => {
         if (payload.eventType === 'DELETE') {
-          setProducts(prev => prev.filter(p => p.id !== payload.old.id));
+          setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
         } else {
           const updatedProduct = mapDbToProductStatus(payload.new);
           setProducts(prev => {
-            const index = prev.findIndex(p => p.id === updatedProduct.id);
+            // Gunakan product_id untuk pencocokan yang lebih stabil antar tipe data
+            const index = prev.findIndex(p => String(p.product_id) === String(updatedProduct.product_id));
             if (index !== -1) {
               const newProducts = [...prev];
               newProducts[index] = updatedProduct;
@@ -170,7 +168,7 @@ const useUserData = () => {
   const saveProduct = async (product: Omit<Product, 'isActive'> & { id?: number }) => {
     if (!user) return false;
     try {
-      const existingProduct = products.find(p => p.product_id === product.product_id);
+      const existingProduct = products.find(p => String(p.product_id) === String(product.product_id));
       
       const productData: any = {
         user_id: user.id,
@@ -191,13 +189,13 @@ const useUserData = () => {
         updated_at: new Date().toISOString()
       };
 
-      let conflictTarget = 'user_id,product_id';
       if (product.id) {
         productData.id = product.id;
-        conflictTarget = 'id';
+      } else if (existingProduct) {
+        productData.id = existingProduct.id;
       }
 
-      const { error } = await supabase.from('user_products').upsert(productData, { onConflict: conflictTarget });
+      const { error } = await supabase.from('user_products').upsert(productData);
       if (error) throw error;
       return true;
     } catch (e) { return false; }
@@ -215,10 +213,9 @@ const useUserData = () => {
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
     if (!user) return false;
     
-    // Optimistic Update: Perbarui UI secara instan
     const originalProducts = [...products];
     setProducts(prev => prev.map(p => {
-      const update = updates.find(u => u.productId === p.product_id);
+      const update = updates.find(u => String(u.productId) === String(p.product_id));
       return update ? { ...p, isActive: update.isActive } : p;
     }));
 
@@ -234,7 +231,6 @@ const useUserData = () => {
       }
       return true;
     } catch (e) {
-      // Revert jika gagal
       setProducts(originalProducts);
       return false;
     }
@@ -242,8 +238,7 @@ const useUserData = () => {
 
   const processSingleProduct = useCallback(async (productId: number) => {
     if (!user) return false;
-    // Tunjukkan status loading secara lokal
-    setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p));
+    setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'loading', message: 'logic.checking' } : p));
     
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
@@ -252,7 +247,6 @@ const useUserData = () => {
       if (error) throw error;
       return true;
     } catch (error) {
-      // Tidak perlu revert manual karena Realtime akan mengirimkan status terakhir dari DB jika ada
       return false;
     }
   }, [user]);
