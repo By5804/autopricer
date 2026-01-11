@@ -109,7 +109,6 @@ const useUserData = () => {
 
     loadInitialData();
 
-    // RLS akan menangani filter user secara otomatis di sisi server
     const channel = supabase
       .channel('app-realtime-sync')
       .on('postgres_changes', { 
@@ -235,15 +234,47 @@ const useUserData = () => {
 
   const processSingleProduct = useCallback(async (productId: number) => {
     if (!user) return false;
-    setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'loading', message: 'logic.checking' } : p));
+    
+    // Set loading state locally for immediate feedback
+    setProducts(prev => prev.map(p => 
+      String(p.product_id) === String(productId) 
+        ? { ...p, status: 'loading', message: 'logic.checking' } 
+        : p
+    ));
     
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
         body: { user_id: user.id, product_id: productId },
       });
+      
       if (error) throw error;
+      
+      // If we got a direct result, update UI immediately as fallback for realtime
+      if (data && data.status) {
+        setProducts(prev => prev.map(p => 
+          String(p.product_id) === String(productId) 
+            ? { 
+                ...p, 
+                status: data.status, 
+                message: data.message, 
+                messageParams: data.messageParams || {},
+                newPrice: data.newPrice || p.newPrice,
+                myPrice: data.myPrice || p.myPrice,
+                competitorPrice: data.competitorPrice || p.competitorPrice,
+                competitorStoreName: data.competitorStoreName || p.competitorStoreName
+              } 
+            : p
+        ));
+      }
+      
       return true;
     } catch (error) {
+      // Revert status on error
+      setProducts(prev => prev.map(p => 
+        String(p.product_id) === String(productId) 
+          ? { ...p, status: 'error', message: 'logic.processFailed' } 
+          : p
+      ));
       return false;
     }
   }, [user]);
