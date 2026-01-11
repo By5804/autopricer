@@ -7,7 +7,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
-import { ChevronsDown, ChevronsUp, Play, Loader2 } from 'lucide-react';
+import { ChevronsDown, ChevronsUp, Play, Loader2, ListFilter } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess } from '@/utils/toast';
@@ -32,6 +32,7 @@ export const Products = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+  const [showOptimalLogs, setShowOptimalLogs] = useState(false);
   const [openCategories, setOpenCategories] = useState<string[]>([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
 
@@ -118,7 +119,12 @@ export const Products = () => {
   const handleExpandAll = () => setOpenCategories(sortedCategories);
   const handleCollapseAll = () => setOpenCategories([]);
 
-  const allLogs = logs.filter(log => log.message !== 'logic.cheapestOptimal');
+  const filteredLogs = logs.filter(log => {
+    if (!showOptimalLogs && log.message === 'logic.cheapestOptimal') {
+      return false;
+    }
+    return true;
+  });
 
   if (userDataLoading) {
     return (
@@ -251,46 +257,66 @@ export const Products = () => {
         />
       )}
 
-      {allLogs.length > 0 && (
+      {logs.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity Logs</CardTitle>
-            <CardDescription>Latest price checking results</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Recent Activity Logs</CardTitle>
+              <CardDescription>Latest price checking results</CardDescription>
+            </div>
+            <div className="flex items-center space-x-2 bg-muted/50 px-3 py-1.5 rounded-lg border">
+              <ListFilter className="h-4 w-4 text-muted-foreground" />
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="show-optimal-logs"
+                  checked={showOptimalLogs}
+                  onCheckedChange={setShowOptimalLogs}
+                  className="scale-75"
+                />
+                <Label htmlFor="show-optimal-logs" className="text-xs cursor-pointer select-none">
+                  Show "Optimal" Logs
+                </Label>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="bg-muted p-4 rounded-md max-h-128 overflow-y-auto">
-              {allLogs.map((log, index) => {
-                const prevLog = allLogs[index + 1];
-                const TIME_GAP_SECONDS = 60;
-                let showSeparator = false;
+              {filteredLogs.length > 0 ? (
+                filteredLogs.map((log, index) => {
+                  const prevLog = filteredLogs[index + 1];
+                  const TIME_GAP_SECONDS = 60;
+                  let showSeparator = false;
 
-                if (prevLog) {
-                  const currentTimestamp = new Date(log.createdAt);
-                  const prevTimestamp = new Date(prevLog.createdAt);
-                  const diffInSeconds = (currentTimestamp.getTime() - prevTimestamp.getTime()) / 1000;
-                  
-                  if (diffInSeconds > TIME_GAP_SECONDS) {
-                    showSeparator = true;
+                  if (prevLog) {
+                    const currentTimestamp = new Date(log.createdAt);
+                    const prevTimestamp = new Date(prevLog.createdAt);
+                    const diffInSeconds = (currentTimestamp.getTime() - prevTimestamp.getTime()) / 1000;
+                    
+                    if (diffInSeconds > TIME_GAP_SECONDS) {
+                      showSeparator = true;
+                    }
                   }
-                }
 
-                return (
-                  <div key={index}>
-                    {showSeparator && (
-                      <div className="my-2 border-t border-dashed border-border/50"></div>
-                    )}
-                    <div className="text-sm font-mono py-1 flex gap-2">
-                      <span className="text-muted-foreground shrink-0">
-                        [{new Date(log.createdAt).toLocaleTimeString()}]
-                      </span>
-                      <span className="font-semibold text-primary shrink-0">
-                        {log.productName}:
-                      </span>
-                      <span>{formatMessage(log.message, log.messageParams)}</span>
+                  return (
+                    <div key={index}>
+                      {showSeparator && (
+                        <div className="my-2 border-t border-dashed border-border/50"></div>
+                      )}
+                      <div className="text-sm font-mono py-1 flex gap-2">
+                        <span className="text-muted-foreground shrink-0">
+                          [{new Date(log.createdAt).toLocaleTimeString()}]
+                        </span>
+                        <span className="font-semibold text-primary shrink-0">
+                          {log.productName}:
+                        </span>
+                        <span>{formatMessage(log.message, log.messageParams)}</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">No logs to display with current filter.</p>
+              )}
             </div>
           </CardContent>
         </Card>

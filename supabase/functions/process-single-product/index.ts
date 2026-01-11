@@ -139,18 +139,21 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
         const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
 
+        // Reset counter if duration expired
         if (now.getTime() - lastReset.getTime() >= timeLimitMs) {
           priceWarCounter = 0;
           priceWarLastResetAt = now.toISOString();
         }
 
+        // Increment counter ONLY if rival is currently cheaper than us (undercutting)
         if (rivalIndex !== -1 && rivalIndex < myIndex) {
           priceWarCounter += 1;
         }
 
-        if (priceWarCounter >= price_war_trigger_count && rivalProduct) {
+        // War mode active if threshold hit AND rival is still the one undercutting us
+        // If rival is now more expensive, we revert to normal logic to allow price recovery
+        if (priceWarCounter >= price_war_trigger_count && rivalProduct && rivalIndex < myIndex) {
           isWarMode = true;
-          // Calculate undercut from rival price, but floor it at minPrice
           const proposedWarPrice = roundPrice(rivalProduct.price - warUndercutValue);
           newPrice = Math.max(minPrice, proposedWarPrice);
           
@@ -227,7 +230,6 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const upData = await upRes.json();
         if (upRes.ok && upData.success) {
           status = 'updated';
-          // Ensure we keep the price war message if that was the trigger
           if (isWarMode) {
             message = 'logic.priceWarDetected';
           } else {
