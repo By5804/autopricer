@@ -45,18 +45,19 @@ serve(async (req) => {
 
     productName = product.name
     
-    // --- LOGIKA BISNIS & DATA GATHERING ---
     const { store_name, whitelist, api_key, secret_key, undercut_amount: globalUndercut } = config
-    const { min_price: minPrice, max_price: maxPrice, undercut_amount: prodUndercut } = product
+    const { min_price: minPrice, max_price: maxPrice, undercut_amount: prodUndercut, price_war_undercut_amount: warUndercut, rival_store_name: rivalStore } = product
 
-    const undercutValue = Math.max(10, Number(prodUndercut) || Number(globalUndercut) || 10)
+    const normalUndercut = Math.max(10, Number(prodUndercut) || Number(globalUndercut) || 10)
+    const priceWarUndercut = Math.max(10, Number(warUndercut) || normalUndercut)
     const whitelistedStores = whitelist ? whitelist.split(',').map((n: string) => n.trim().toLowerCase()) : []
 
-    const scrapeRes = await fetch(`https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`)
+    // 1. Ambil daftar kompetitor (Sekarang ditingkatkan ke 50)
+    const scrapeRes = await fetch(`https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`)
     if (!scrapeRes.ok) throw new Error(`Scrape API failed: ${scrapeRes.status}`)
     
-    const data = await scrapeRes.json()
-    const competitorList = data?.data?.data || []
+    const scrapeData = await scrapeRes.json()
+    const competitorList = scrapeData?.data?.data || []
 
     let result: any = { 
       status: 'idle', 
@@ -67,20 +68,46 @@ serve(async (req) => {
       newPrice: null
     }
 
+    // Cari produk kita di dalam daftar
+    let myProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase())
+    
+    // --- FALLBACK SYNC ---
+    // Jika tidak ditemukan di 50 besar, ambil data produk kita secara langsung via API Detail
+    if (!myProduct) {
+      try {
+        const directRes = await fetch(`https://api-gateway.itemku.com/v1/product?id=${productId}`)
+        if (directRes.ok) {
+          const directData = await directRes.json()
+          const directInfo = directData?.data?.data?.[0]
+          if (directInfo) {
+            result.myPrice = directInfo.price
+            result.myStock = directInfo.stock
+            result.mySoldCount = getSoldCount(directInfo)
+          }
+        }
+      } catch (e) {
+        console.error("[process-single-product] Direct fetch fallback failed:", e.message)
+      }
+    } else {
+      result.myPrice = myProduct.price
+      result.myStock = myProduct.stock
+      result.mySoldCount = getSoldCount(myProduct)
+    }
+
     if (competitorList.length === 0) {
       result.status = 'error'
       result.message = 'logic.noCompetitor'
     } else {
-      const myProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === store_name.toLowerCase())
       const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1
 
-      if (myProduct) {
-        result.myPrice = myProduct.price
-        result.myStock = myProduct.stock
-        result.mySoldCount = getSoldCount(myProduct)
-      }
-
       if (myIndex === -1) {
+        // Produk tidak ada di 50 besar (out of stock atau harga terlalu mahal)
+        const p1 = competitorList[0]
+        result.competitorPrice = p1.price
+        result.competitorStoreName = p1.seller?.shop_name
+        result.competitorStock = p1.stock
+        result.competitorSoldCount = getSoldCount(p1)
+        
         result.status = 'error'
         result.message = 'logic.outOfStock'
       } else {
@@ -97,8 +124,8 @@ serve(async (req) => {
             result.competitorStock = p2.stock
             result.competitorSoldCount = getSoldCount(p2)
 
-            if (p2.price - myProduct.price > undercutValue + 20) {
-              result.newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice)
+            if (p2.price - myProduct.price > normalUndercut + 20) {
+              result.newPrice = Math.min(roundPrice(p2.price - normalUndercut), maxPrice)
               result.status = 'updated'
               result.message = 'logic.maximizeProfit'
               result.messageParams = { newPrice: result.newPrice.toLocaleString('id-ID') }
@@ -111,7 +138,7 @@ serve(async (req) => {
           // Cari target (orang pertama di atas kita yang bukan whitelist)
           const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.toLowerCase()))
           
-          const p1 = competitorList[0] // Selalu simpan data P1 sebagai info kompetitor utama jika tidak ada target spesifik
+          const p1 = competitorList[0]
           const displayTarget = target || p1
           
           result.competitorPrice = displayTarget.price
@@ -120,10 +147,27 @@ serve(async (req) => {
           result.competitorSoldCount = getSoldCount(displayTarget)
 
           if (target) {
-            result.newPrice = roundPrice(target.price - undercutValue)
+            const targetName = target.seller?.shop_name?.toLowerCase() || ''
+            const isRival = rivalStore && targetName === rivalStore.toLowerCase()
+            const currentUndercut = isRival ? priceWarUndercut : normalUndercut
+            
+            result.newPrice = roundPrice(target.price - currentUndercut)
             result.status = 'updated'
-            result.message = 'logic.undercutting'
-            result.messageParams = { competitorStoreName: target.seller?.shop_name, rank: competitorList.indexOf(target) + 1 }
+            
+            if (isRival) {
+              result.message = 'logic.priceWarDetected'
+              result.messageParams = { 
+                rivalStoreName: target.seller?.shop_name, 
+                newPrice: result.newPrice.toLocaleString('id-ID'),
+                minPrice: minPrice.toLocaleString('id-ID')
+              }
+            } else {
+              result.message = 'logic.undercutting'
+              result.messageParams = { 
+                competitorStoreName: target.seller?.shop_name, 
+                rank: competitorList.indexOf(target) + 1 
+              }
+            }
           } else {
             result.status = 'success'
             result.message = 'logic.holdPrice'
@@ -132,13 +176,21 @@ serve(async (req) => {
       }
     }
 
-    // Eksekusi Update Harga ke Itemku
+    // Eksekusi Update Harga
     if (result.status === 'updated' && result.newPrice) {
       if (result.newPrice < minPrice) {
-        result.status = 'error'
-        result.message = 'logic.violatesMinPrice'
-        result.messageParams = { proposedPrice: result.newPrice.toLocaleString('id-ID'), minPrice: minPrice.toLocaleString('id-ID') }
-      } else {
+        const isWar = result.message === 'logic.priceWarDetected';
+        if (isWar) {
+          result.newPrice = minPrice;
+          result.messageParams.newPrice = minPrice.toLocaleString('id-ID');
+        } else {
+          result.status = 'error'
+          result.message = 'logic.violatesMinPrice'
+          result.messageParams = { proposedPrice: result.newPrice.toLocaleString('id-ID'), minPrice: minPrice.toLocaleString('id-ID') }
+        }
+      }
+      
+      if (result.status === 'updated') {
         const nonce = Math.floor(Date.now() / 1000).toString()
         const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"])
         const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: result.newPrice }, key)
@@ -157,15 +209,15 @@ serve(async (req) => {
       }
     }
 
-    // Simpan ke DB dengan DATA LENGKAP
+    // Update Database dengan data yang berhasil didapat (termasuk dari fallback)
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
       last_message_params: result.messageParams || {},
       proposed_price: result.newPrice || product.proposed_price,
-      last_my_price: result.myPrice,
-      last_my_stock: result.myStock,
-      last_my_sold_count: result.mySoldCount,
+      last_my_price: result.myPrice || product.last_my_price,
+      last_my_stock: result.myStock !== null ? result.myStock : product.last_my_stock,
+      last_my_sold_count: result.mySoldCount || product.last_my_sold_count,
       last_competitor_price: result.competitorPrice,
       last_competitor_store_name: result.competitorStoreName,
       last_competitor_stock: result.competitorStock,
@@ -176,12 +228,7 @@ serve(async (req) => {
     await supabaseAdmin.from('product_logs').insert({
       user_id: userId,
       product_id: productId,
-      log_data: { 
-        status: result.status,
-        message: result.message,
-        messageParams: result.messageParams,
-        productName 
-      }
+      log_data: { status: result.status, message: result.message, messageParams: result.messageParams, productName }
     })
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
