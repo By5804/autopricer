@@ -10,7 +10,7 @@ import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
 import { ChevronsDown, ChevronsUp, Play, Loader2, ListFilter } from 'lucide-react';
 import useUserData from '@/hooks/useUserData';
 import type { Product, ProductStatus } from '@/types';
-import { showError, showSuccess } from '@/utils/toast';
+import { showError, showSuccess, showLoading, dismissToast } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { NextRunCountdown } from '@/components/NextRunCountdown';
 import { formatMessage } from '@/utils/translations';
@@ -48,19 +48,39 @@ export const Products = () => {
   const handleRunAll = async () => {
     if (isProcessingAll) return;
     setIsProcessingAll(true);
-    showSuccess('Starting manual sync for all active products...');
+    const toastId = showLoading('Starting manual sync for all active products...');
     
     try {
       const { error } = await supabase.functions.invoke('cron-scheduler', {
         body: { force: true }
       });
+      dismissToast(toastId);
       if (error) throw error;
       showSuccess('Manual sync triggered successfully.');
     } catch (err) {
+      dismissToast(toastId);
       console.error(err);
       showError('Failed to trigger manual sync.');
     } finally {
       setIsProcessingAll(false);
+    }
+  };
+
+  const handleRefreshProduct = async (productId: number) => {
+    const product = products.find(p => p.product_id === productId);
+    const toastId = showLoading(`Refreshing ${product?.name || 'product'}...`);
+    
+    try {
+      const success = await processSingleProduct(productId);
+      dismissToast(toastId);
+      if (success) {
+        showSuccess(`${product?.name || 'Product'} refreshed successfully.`);
+      } else {
+        showError(`Failed to refresh ${product?.name || 'product'}.`);
+      }
+    } catch (error) {
+      dismissToast(toastId);
+      showError('An unexpected error occurred during refresh.');
     }
   };
 
@@ -225,7 +245,7 @@ export const Products = () => {
                             onSort={handleSort} 
                             sortConfig={sortConfig} 
                             onActiveChange={handleActiveChange}
-                            onRefresh={processSingleProduct} 
+                            onRefresh={handleRefreshProduct} 
                           />
                         </AccordionContent>
                       </AccordionItem>

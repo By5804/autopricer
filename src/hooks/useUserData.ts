@@ -228,15 +228,17 @@ const useUserData = () => {
   };
 
   const processSingleProduct = useCallback(async (productId: number) => {
-    if (!user) return;
+    if (!user) return false;
     setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p));
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
         body: { user_id: user.id, product_id: productId },
       });
       if (error) throw error;
+      return true;
     } catch (error) {
       setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
+      return false;
     }
   }, [user]);
 
