@@ -31,20 +31,6 @@ const useUserData = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const addLog = useCallback((logData: any, createdAt: string) => {
-    const newLog: LogEntry = {
-      message: logData?.message || 'Activity log entry',
-      messageParams: logData?.messageParams || {},
-      productName: logData?.productName || logData?.name || 'Product',
-      createdAt: createdAt
-    };
-    setLogs(prev => {
-      const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
-      if (exists) return prev;
-      return [newLog, ...prev].slice(0, 200);
-    });
-  }, []);
-
   const mapDbToProductStatus = useCallback((p: any): ProductStatus => ({
     id: p.id,
     product_id: p.product_id,
@@ -73,6 +59,23 @@ const useUserData = () => {
     competitorSoldCount: (p.last_competitor_sold_count as any) || 0,
     newPrice: p.proposed_price,
   }), []);
+
+  const addLog = useCallback((logData: any, createdAt: string) => {
+    const newLog: LogEntry = {
+      message: logData?.message || 'Activity log entry',
+      messageParams: logData?.messageParams || {},
+      productName: logData?.productName || logData?.name || 'Product',
+      createdAt: createdAt
+    };
+    
+    setLogs(prev => {
+      // Cek apakah log sudah ada berdasarkan timestamp dan nama produk
+      const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
+      if (exists) return prev;
+      // Tambah ke paling atas dan batasi 200 log
+      return [newLog, ...prev].slice(0, 200);
+    });
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -108,8 +111,9 @@ const useUserData = () => {
 
     loadInitialData();
 
+    // Setup Realtime Channel
     const channel = supabase
-      .channel(`user-updates-${user.id}`)
+      .channel(`db-changes-${user.id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
@@ -127,14 +131,15 @@ const useUserData = () => {
         if (payload.eventType === 'DELETE') {
           setProducts(prev => prev.filter(p => p.id !== payload.old.id));
         } else {
+          const updatedProduct = mapDbToProductStatus(payload.new);
           setProducts(prev => {
-            const index = prev.findIndex(p => p.id === payload.new.id);
+            const index = prev.findIndex(p => p.id === updatedProduct.id);
             if (index !== -1) {
               const newProducts = [...prev];
-              newProducts[index] = mapDbToProductStatus(payload.new);
+              newProducts[index] = updatedProduct;
               return newProducts;
             }
-            return [mapDbToProductStatus(payload.new), ...prev];
+            return [updatedProduct, ...prev];
           });
         }
       })
@@ -187,25 +192,15 @@ const useUserData = () => {
       };
 
       let conflictTarget = 'user_id,product_id';
-      
       if (product.id) {
         productData.id = product.id;
         conflictTarget = 'id';
-      } else if (existingProduct) {
-        productData.id = existingProduct.id;
-        conflictTarget = 'id';
       }
 
-      const { error } = await supabase
-        .from('user_products')
-        .upsert(productData, { onConflict: conflictTarget });
-
+      const { error } = await supabase.from('user_products').upsert(productData, { onConflict: conflictTarget });
       if (error) throw error;
       return true;
-    } catch (e) { 
-      console.error('Error in saveProduct:', e);
-      return false; 
-    }
+    } catch (e) { return false; }
   };
 
   const deleteProduct = async (productId: number) => {
@@ -219,17 +214,37 @@ const useUserData = () => {
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
     if (!user) return false;
+    
+    // Optimistic Update: Perbarui UI secara instan
+    const originalProducts = [...products];
+    setProducts(prev => prev.map(p => {
+      const update = updates.find(u => u.productId === p.product_id);
+      return update ? { ...p, isActive: update.isActive } : p;
+    }));
+
     try {
       for (const update of updates) {
-        await supabase.from('user_products').update({ is_active: update.isActive }).eq('user_id', user.id).eq('product_id', update.productId);
+        const { error } = await supabase
+          .from('user_products')
+          .update({ is_active: update.isActive, updated_at: new Date().toISOString() })
+          .eq('user_id', user.id)
+          .eq('product_id', update.productId);
+        
+        if (error) throw error;
       }
       return true;
-    } catch (e) { return false; }
+    } catch (e) {
+      // Revert jika gagal
+      setProducts(originalProducts);
+      return false;
+    }
   };
 
   const processSingleProduct = useCallback(async (productId: number) => {
     if (!user) return false;
+    // Tunjukkan status loading secara lokal
     setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'loading', message: 'logic.checking' } : p));
+    
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', {
         body: { user_id: user.id, product_id: productId },
@@ -237,7 +252,7 @@ const useUserData = () => {
       if (error) throw error;
       return true;
     } catch (error) {
-      setProducts(prev => prev.map(p => p.product_id === productId ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
+      // Tidak perlu revert manual karena Realtime akan mengirimkan status terakhir dari DB jika ada
       return false;
     }
   }, [user]);
