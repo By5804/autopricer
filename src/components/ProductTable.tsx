@@ -2,7 +2,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Pencil, Trash2, ArrowUp, ArrowDown, RotateCcw, RefreshCw } from "lucide-react";
+import { Pencil, Trash2, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Product, ProductStatus } from "@/types";
 import { formatMessage } from "@/utils/translations";
@@ -83,6 +83,10 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
       <TableBody>
         {products.map((product) => {
           const isLoading = product.status === 'loading';
+          // Tampilkan harga usulan (newPrice) hanya jika sedang di-update, 
+          // Jika tidak, tampilkan harga asli dari Itemku (myPrice)
+          const displayPrice = product.status === 'updated' ? (product.newPrice || product.myPrice) : (product.myPrice || product.newPrice);
+
           return (
             <TableRow 
               key={product.product_id}
@@ -98,7 +102,7 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
               <TableCell className="font-medium">{product.name}</TableCell>
               <TableCell className="text-right">{formatNumber(product.myStock)}</TableCell>
               <TableCell className="text-right font-semibold">
-                {formatPrice(product.newPrice || product.myPrice)}
+                {formatPrice(displayPrice)}
               </TableCell>
               <TableCell>{product.competitorStoreName || '-'}</TableCell>
               <TableCell className="text-right">

@@ -52,7 +52,6 @@ serve(async (req) => {
     const priceWarUndercut = Math.max(10, Number(warUndercut) || normalUndercut)
     const whitelistedStores = whitelist ? whitelist.split(',').map((n: string) => n.trim().toLowerCase()) : []
 
-    // 1. Ambil daftar kompetitor (Sekarang ditingkatkan ke 50)
     const scrapeRes = await fetch(`https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`)
     if (!scrapeRes.ok) throw new Error(`Scrape API failed: ${scrapeRes.status}`)
     
@@ -68,12 +67,9 @@ serve(async (req) => {
       newPrice: null
     }
 
-    // Cari produk kita di dalam daftar dengan trim dan lowercase
     const normalizedMyStore = store_name.trim().toLowerCase();
     let myProduct = competitorList.find((p: any) => p.seller?.shop_name?.trim().toLowerCase() === normalizedMyStore)
     
-    // --- FALLBACK SYNC ---
-    // Jika tidak ditemukan di 50 besar, ambil data produk kita secara langsung via API Detail
     if (!myProduct) {
       try {
         const directRes = await fetch(`https://api-gateway.itemku.com/v1/product?id=${productId}`)
@@ -206,12 +202,17 @@ serve(async (req) => {
       }
     }
 
-    // Update Database - Pastikan menggunakan nilai terbaru (null safe)
+    // UPDATE PENTING: Jika status bukan updated, proposed_price diatur sama dengan myPrice
+    // Ini agar dashboard tidak menampilkan harga usulan lama yang sudah tidak aktif
+    const dbProposedPrice = result.status === 'updated' && result.newPrice !== null 
+      ? result.newPrice 
+      : (result.myPrice !== null ? result.myPrice : product.proposed_price);
+
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
-      last_message_params: result.last_message_params || result.messageParams || {},
-      proposed_price: result.newPrice !== null ? result.newPrice : product.proposed_price,
+      last_message_params: result.messageParams || {},
+      proposed_price: dbProposedPrice,
       last_my_price: result.myPrice !== null ? result.myPrice : product.last_my_price,
       last_my_stock: result.myStock !== null ? result.myStock : product.last_my_stock,
       last_my_sold_count: result.mySoldCount !== null ? result.mySoldCount : product.last_my_sold_count,
