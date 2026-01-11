@@ -61,17 +61,22 @@ const useUserData = () => {
   }), []);
 
   const addLog = useCallback((logData: any, createdAt: string) => {
+    if (!logData) return;
+    
     const newLog: LogEntry = {
-      message: logData?.message || 'Activity log entry',
-      messageParams: logData?.messageParams || {},
-      productName: logData?.productName || logData?.name || 'Product',
+      message: logData.message || 'Activity log entry',
+      messageParams: logData.messageParams || {},
+      productName: logData.productName || 'Product',
       createdAt: createdAt
     };
     
     setLogs(prev => {
-      const exists = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
-      if (exists) return prev;
-      return [newLog, ...prev].slice(0, 200);
+      // Cek duplikasi berdasarkan timestamp dan pesan
+      const isDuplicate = prev.some(l => l.createdAt === createdAt && l.message === newLog.message);
+      if (isDuplicate) return prev;
+      
+      const updated = [newLog, ...prev];
+      return updated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 200);
     });
   }, []);
 
@@ -110,7 +115,7 @@ const useUserData = () => {
     loadInitialData();
 
     const channel = supabase
-      .channel('app-realtime-sync')
+      .channel(`user-realtime-${user.id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
