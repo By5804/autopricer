@@ -91,7 +91,7 @@ const useUserData = () => {
           setProducts(productsData.map(mapDbToProductStatus));
         }
 
-        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200);
+        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100);
         if (logsData) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
@@ -109,28 +109,26 @@ const useUserData = () => {
 
     loadInitialData();
 
+    // RLS akan menangani filter user secara otomatis di sisi server
     const channel = supabase
-      .channel(`db-realtime-${user.id}`)
+      .channel('app-realtime-sync')
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
-        table: 'product_logs', 
-        filter: `user_id=eq.${user.id}` 
+        table: 'product_logs'
       }, (payload) => {
         addLog(payload.new.log_data, payload.new.created_at);
       })
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
-        table: 'user_products', 
-        filter: `user_id=eq.${user.id}` 
+        table: 'user_products'
       }, (payload) => {
         if (payload.eventType === 'DELETE') {
           setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
         } else {
           const updatedProduct = mapDbToProductStatus(payload.new);
           setProducts(prev => {
-            // Gunakan product_id untuk pencocokan yang lebih stabil antar tipe data
             const index = prev.findIndex(p => String(p.product_id) === String(updatedProduct.product_id));
             if (index !== -1) {
               const newProducts = [...prev];
@@ -144,8 +142,7 @@ const useUserData = () => {
       .on('postgres_changes', { 
         event: 'UPDATE', 
         schema: 'public', 
-        table: 'user_configurations', 
-        filter: `user_id=eq.${user.id}` 
+        table: 'user_configurations'
       }, (payload) => {
         setConfig(payload.new as UserConfig);
       })
