@@ -225,7 +225,7 @@ export const Products = () => {
                             onSort={handleSort} 
                             sortConfig={sortConfig} 
                             onActiveChange={handleActiveChange}
-                            onRetry={processSingleProduct} 
+                            onRefresh={processSingleProduct} 
                           />
                         </AccordionContent>
                       </AccordionItem>

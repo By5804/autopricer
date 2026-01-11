@@ -2,7 +2,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Pencil, Trash2, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
+import { Pencil, Trash2, ArrowUp, ArrowDown, RotateCcw, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Product, ProductStatus } from "@/types";
 import { formatMessage } from "@/utils/translations";
@@ -14,10 +14,10 @@ interface ProductTableProps {
   onSort: (key: keyof ProductStatus) => void;
   sortConfig: { key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null;
   onActiveChange: (productId: number, isActive: boolean) => void;
-  onRetry: (productId: number) => void; 
+  onRefresh: (productId: number) => void; 
 }
 
-export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, onActiveChange, onRetry }: ProductTableProps) {
+export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, onActiveChange, onRefresh }: ProductTableProps) {
   const getStatusVariant = (status: ProductStatus['status']) => {
     switch (status) {
       case 'success':
@@ -82,6 +82,7 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
       </TableHeader>
       <TableBody>
         {products.map((product) => {
+          const isLoading = product.status === 'loading';
           return (
             <TableRow 
               key={product.product_id}
@@ -111,22 +112,24 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
               </TableCell>
               <TableCell>{formatMessage(product.message, product.messageParams)}</TableCell>
               <TableCell className="text-right">
-                {product.status === 'error' && (
+                <div className="flex justify-end gap-1">
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    onClick={() => onRetry(product.product_id)}
-                    className="text-orange-500 hover:text-orange-600"
+                    onClick={() => onRefresh(product.product_id)}
+                    disabled={isLoading}
+                    className={cn("text-blue-500 hover:text-blue-600", isLoading && "animate-spin")}
+                    title="Refresh this product"
                   >
-                    <RotateCcw className="h-4 w-4" />
+                    <RefreshCw className="h-4 w-4" />
                   </Button>
-                )}
-                <Button variant="ghost" size="icon" onClick={() => onEdit(product)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(product.product_id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                  <Button variant="ghost" size="icon" onClick={() => onEdit(product)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90" onClick={() => onDelete(product.product_id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           );
