@@ -7,7 +7,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const roundPrice = (price: number) => Math.floor(price / 10) * 10;
+const roundPrice = (price: number) => {
+  if (isNaN(price)) return 0;
+  return Math.floor(price / 10) * 10;
+};
 
 async function fetchWithTimeout(resource: string, options = {}, timeout = 12000) {
   const controller = new AbortController();
@@ -43,17 +46,22 @@ serve(async (req) => {
     userId = body.user_id;
     productId = body.product_id;
 
-    const { data: config } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', userId).single();
-    const { data: product } = await supabaseAdmin.from('user_products').select('*').eq('user_id', userId).eq('product_id', productId).single();
+    console.log(`[process-single-product] Processing user: ${userId}, product: ${productId}`);
 
-    if (!config || !product) throw new Error('Config or Product not found');
+    const { data: config, error: configErr } = await supabaseAdmin.from('user_configurations').select('*').eq('user_id', userId).single();
+    const { data: product, error: prodErr } = await supabaseAdmin.from('user_products').select('*').eq('user_id', userId).eq('product_id', productId).single();
+
+    if (configErr || prodErr || !config || !product) {
+      throw new Error(`Config or Product not found: ${configErr?.message || prodErr?.message || 'Unknown error'}`);
+    }
 
     const result = await processProductLogic(supabaseAdmin, config, product);
     
-    await supabaseAdmin.from('user_products').update({
+    // Simpan hasil pemrosesan
+    const { error: updateErr } = await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
-      last_message_params: result.messageParams,
+      last_message_params: result.messageParams || {},
       proposed_price: result.newPrice,
       last_my_price: result.myPrice,
       last_my_stock: result.myStock,
@@ -67,12 +75,15 @@ serve(async (req) => {
       updated_at: new Date().toISOString()
     }).eq('user_id', userId).eq('product_id', productId);
 
+    if (updateErr) console.error("[process-single-product] DB Update Error:", updateErr.message);
+
+    // Tambahkan log aktivitas
     await supabaseAdmin.from('product_logs').insert({
       user_id: userId,
       product_id: productId,
       log_data: {
         message: result.message,
-        messageParams: result.messageParams,
+        messageParams: result.messageParams || {},
         productName: product.name,
         status: result.status
       }
@@ -80,8 +91,33 @@ serve(async (req) => {
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
-    console.error("[process-single-product] Error:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    console.error("[process-single-product] Critical Error:", error.message);
+    
+    // Jika terjadi error fatal, kita coba simpan status error ke DB agar user tahu
+    if (userId && productId) {
+      await supabaseAdmin.from('user_products').update({
+        last_status: 'error',
+        last_message: 'logic.processFailed',
+        last_message_params: { error: error.message },
+        updated_at: new Date().toISOString()
+      }).eq('user_id', userId).eq('product_id', productId);
+
+      await supabaseAdmin.from('product_logs').insert({
+        user_id: userId,
+        product_id: productId,
+        log_data: {
+          message: 'logic.processFailed',
+          messageParams: { error: error.message },
+          productName: 'Error Recovery',
+          status: 'error'
+        }
+      });
+    }
+
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 200, // Kembalikan 200 agar client bisa memproses pesan error alih-alih crash 500
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
   }
 });
 
@@ -99,9 +135,9 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
   
   let myPrice = null, myStock = null, mySoldCount = null;
   let competitorPrice = null, competitorStoreName = null, competitorStock = null, competitorSoldCount = null;
-  let newPrice = null, message = 'logic.waiting', messageParams = {}, status = 'idle';
+  let newPrice = null, message = 'logic.waiting', messageParams: any = {}, status = 'idle';
   
-  let priceWarCounter = currentCounter;
+  let priceWarCounter = Number(currentCounter) || 0;
   let priceWarLastResetAt = lastResetAt;
 
   const undercutValue = Math.max(10, Number(prodUndercutAmount) || Number(globalUndercutAmount) || 10);
@@ -109,7 +145,10 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
   const whitelistedStores = whitelist ? whitelist.split(',').map((name: string) => name.trim().toLowerCase()) : [];
 
   const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=10&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`;
+  
   const response = await fetchWithTimeout(scrapeUrl, {}, 12000);
+  if (!response.ok) throw new Error(`API Itemku Scrape failed with status ${response.status}`);
+  
   const data = await response.json();
   const competitorList = data?.data?.data || [];
 
@@ -132,17 +171,21 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     } else {
       let isWarMode = false;
       const now = new Date();
-      const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
-      const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
+      const timeLimitMs = (Number(price_war_trigger_hours) || 1) * 60 * 60 * 1000;
       
-      let wasInWar = currentCounter >= price_war_trigger_count && (now.getTime() - lastReset.getTime() < timeLimitMs);
+      let lastResetDate = new Date(priceWarLastResetAt);
+      if (isNaN(lastResetDate.getTime())) {
+        lastResetDate = new Date(now.getTime() - timeLimitMs);
+      }
+      
+      let wasInWar = priceWarCounter >= (Number(price_war_trigger_count) || 5) && (now.getTime() - lastResetDate.getTime() < timeLimitMs);
 
       if (rivalStoreName) {
         const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
         const rivalIndex = rivalProduct ? competitorList.indexOf(rivalProduct) : -1;
 
-        // Hanya reset counter jika durasi sudah habis DAN rival tidak lagi mengancam
-        if (now.getTime() - lastReset.getTime() >= timeLimitMs && (rivalIndex === -1 || rivalIndex >= myIndex)) {
+        // Reset counter jika durasi sudah habis DAN rival tidak lagi mengancam
+        if (now.getTime() - lastResetDate.getTime() >= timeLimitMs && (rivalIndex === -1 || rivalIndex >= myIndex)) {
           priceWarCounter = 0;
           priceWarLastResetAt = now.toISOString();
           wasInWar = false;
@@ -154,14 +197,14 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         }
 
         // Mode Perang Aktif
-        if (priceWarCounter >= price_war_trigger_count && rivalProduct && rivalIndex < myIndex) {
+        if (priceWarCounter >= (Number(price_war_trigger_count) || 5) && rivalProduct && rivalIndex < myIndex) {
           isWarMode = true;
           const proposedWarPrice = roundPrice(rivalProduct.price - warUndercutValue);
           newPrice = Math.max(minPrice, proposedWarPrice);
           
           message = 'logic.priceWarDetected';
           messageParams = { 
-            rivalStoreName: rivalProduct.seller?.shop_name, 
+            rivalStoreName: rivalProduct.seller?.shop_name || rivalStoreName, 
             minPrice: minPrice.toLocaleString('id-ID'),
             newPrice: newPrice.toLocaleString('id-ID')
           };
@@ -180,21 +223,25 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         if (myIndex === 0) {
           const p2 = competitorList[1];
           if (!p2) {
-            if (myPrice < maxPrice) { newPrice = maxPrice; message = 'logic.onlySellerSetMax'; }
-            else message = 'logic.onlySellerAtMax';
+            if (myPrice < maxPrice) { 
+              newPrice = maxPrice; 
+              message = 'logic.onlySellerSetMax'; 
+            } else {
+              message = 'logic.onlySellerAtMax';
+            }
           } else {
             competitorPrice = p2.price;
             competitorStoreName = p2.seller?.shop_name;
             competitorStock = p2.stock;
             competitorSoldCount = getSoldCount(p2);
 
-            // Ambang batas profit lebih sensitif (min + 20)
             if (p2.price - myPrice > undercutValue + 20) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
               message = wasInWar ? 'logic.priceWarRecovery' : 'logic.maximizeProfit';
-              messageParams = { newPrice: newPrice.toLocaleString('id-ID') };
+              messageParams = { newPrice: (newPrice || myPrice).toLocaleString('id-ID') };
             } else {
               message = wasInWar ? 'logic.priceWarRecovery' : 'logic.cheapestOptimal';
+              if (wasInWar) messageParams = { newPrice: (myPrice || 0).toLocaleString('id-ID') };
             }
           }
         } else if (target) {
@@ -220,12 +267,13 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
     if (newPrice !== null && newPrice !== myPrice) {
       if (newPrice < minPrice) {
         message = 'logic.violatesMinPrice';
-        messageParams = { proposedPrice: newPrice, minPrice: minPrice };
+        messageParams = { proposedPrice: newPrice.toLocaleString('id-ID'), minPrice: minPrice.toLocaleString('id-ID') };
         status = 'error';
         newPrice = null;
       } else {
         const nonce = Math.floor(Date.now() / 1000).toString();
-        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
+        const secretKeyBytes = new TextEncoder().encode(secret_key);
+        const key = await crypto.subtle.importKey("raw", secretKeyBytes, { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"]);
         const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: newPrice }, key);
 
         const upRes = await fetch("https://tokoku-gateway.itemku.com/api/product/price/update", {
@@ -233,10 +281,16 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
           body: JSON.stringify({ product_id: product.product_id, new_price: newPrice })
         });
-        const upData = await upRes.json();
+        
+        let upData;
+        try {
+          upData = await upRes.json();
+        } catch (e) {
+          throw new Error(`Itemku Update Price API returned invalid JSON (Status: ${upRes.status})`);
+        }
+
         if (upRes.ok && upData.success) {
           status = 'updated';
-          // Ensure correct message on success
           if (isWarMode) {
              message = 'logic.priceWarDetected';
           } else if (message === 'logic.priceWarRecovery') {
@@ -248,7 +302,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         } else {
           status = 'error';
           message = 'logic.updateFail';
-          messageParams = { errorMessage: upData.message || 'Update failed' };
+          messageParams = { errorMessage: upData?.message || upData?.error || 'Update failed' };
         }
       }
     }
