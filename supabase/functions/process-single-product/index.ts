@@ -131,6 +131,8 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
       status = 'error';
     } else {
       let isWarMode = false;
+      let wasInWar = currentCounter >= price_war_trigger_count;
+
       if (rivalStoreName) {
         const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
         const rivalIndex = rivalProduct ? competitorList.indexOf(rivalProduct) : -1;
@@ -139,8 +141,8 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
         const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
 
-        // Reset counter if duration expired
-        if (now.getTime() - lastReset.getTime() >= timeLimitMs) {
+        // Reset counter if duration expired OR if rival is no longer cutting us
+        if (now.getTime() - lastReset.getTime() >= timeLimitMs || rivalIndex === -1 || rivalIndex >= myIndex) {
           priceWarCounter = 0;
           priceWarLastResetAt = now.toISOString();
         }
@@ -151,7 +153,6 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         }
 
         // War mode active if threshold hit AND rival is still the one undercutting us
-        // If rival is now more expensive, we revert to normal logic to allow price recovery
         if (priceWarCounter >= price_war_trigger_count && rivalProduct && rivalIndex < myIndex) {
           isWarMode = true;
           const proposedWarPrice = roundPrice(rivalProduct.price - warUndercutValue);
@@ -188,7 +189,7 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
 
             if (p2.price - myPrice > undercutValue + 90) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
-              message = 'logic.maximizeProfit';
+              message = wasInWar ? 'logic.priceWarRecovery' : 'logic.maximizeProfit';
             } else message = 'logic.cheapestOptimal';
           }
         } else if (target) {
@@ -232,6 +233,9 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
           status = 'updated';
           if (isWarMode) {
             message = 'logic.priceWarDetected';
+          } else if (message === 'logic.priceWarRecovery') {
+            // keep the recovery message
+            messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
           } else {
             message = 'logic.updateSuccess';
             messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };

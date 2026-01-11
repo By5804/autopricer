@@ -25,7 +25,7 @@ const translations: Record<string, string> = {
   "logic.violatesMinPrice": "Proposed price Rp {{proposedPrice}} is below min price Rp {{minPrice}}. Holding price.",
   "logic.violatesMaxPrice": "Proposed price Rp {{proposedPrice}} is above max price Rp {{maxPrice}}. Holding price.",
   "logic.priceWarDetected": "Price war detected against {{rivalStoreName}}. Undercutting to Rp {{newPrice}} (Floor: Rp {{minPrice}}).",
-  "logic.priceWarRecovery": "Price war recovery active. Matching P2 price Rp {{newPrice}}.",
+  "logic.priceWarRecovery": "Price war recovery: Matching P2 price Rp {{newPrice}}.",
   "logic.priceWarCooldown": "Price war cooldown active against {{rivalStoreName}}. Holding minimum price Rp {{minPrice}}.",
 };
 
