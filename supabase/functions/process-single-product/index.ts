@@ -131,28 +131,29 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
       status = 'error';
     } else {
       let isWarMode = false;
-      let wasInWar = currentCounter >= price_war_trigger_count;
+      const now = new Date();
+      const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
+      const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
+      
+      let wasInWar = currentCounter >= price_war_trigger_count && (now.getTime() - lastReset.getTime() < timeLimitMs);
 
       if (rivalStoreName) {
         const rivalProduct = competitorList.find((p: any) => p.seller?.shop_name?.toLowerCase() === rivalStoreName.toLowerCase());
         const rivalIndex = rivalProduct ? competitorList.indexOf(rivalProduct) : -1;
-        
-        const now = new Date();
-        const timeLimitMs = price_war_trigger_hours * 60 * 60 * 1000;
-        const lastReset = priceWarLastResetAt ? new Date(priceWarLastResetAt) : new Date(now.getTime() - timeLimitMs);
 
-        // Reset counter if duration expired OR if rival is no longer cutting us
-        if (now.getTime() - lastReset.getTime() >= timeLimitMs || rivalIndex === -1 || rivalIndex >= myIndex) {
+        // Hanya reset counter jika durasi sudah habis DAN rival tidak lagi mengancam
+        if (now.getTime() - lastReset.getTime() >= timeLimitMs && (rivalIndex === -1 || rivalIndex >= myIndex)) {
           priceWarCounter = 0;
           priceWarLastResetAt = now.toISOString();
+          wasInWar = false;
         }
 
-        // Increment counter ONLY if rival is currently cheaper than us (undercutting)
+        // Increment counter jika rival memotong harga
         if (rivalIndex !== -1 && rivalIndex < myIndex) {
           priceWarCounter += 1;
         }
 
-        // War mode active if threshold hit AND rival is still the one undercutting us
+        // Mode Perang Aktif
         if (priceWarCounter >= price_war_trigger_count && rivalProduct && rivalIndex < myIndex) {
           isWarMode = true;
           const proposedWarPrice = roundPrice(rivalProduct.price - warUndercutValue);
@@ -187,10 +188,14 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
             competitorStock = p2.stock;
             competitorSoldCount = getSoldCount(p2);
 
-            if (p2.price - myPrice > undercutValue + 90) {
+            // Ambang batas profit lebih sensitif (min + 20)
+            if (p2.price - myPrice > undercutValue + 20) {
               newPrice = Math.min(roundPrice(p2.price - undercutValue), maxPrice);
               message = wasInWar ? 'logic.priceWarRecovery' : 'logic.maximizeProfit';
-            } else message = 'logic.cheapestOptimal';
+              messageParams = { newPrice: newPrice.toLocaleString('id-ID') };
+            } else {
+              message = wasInWar ? 'logic.priceWarRecovery' : 'logic.cheapestOptimal';
+            }
           }
         } else if (target) {
           newPrice = roundPrice(target.price - undercutValue);
@@ -231,11 +236,11 @@ async function processProductLogic(supabaseAdmin: any, config: any, product: any
         const upData = await upRes.json();
         if (upRes.ok && upData.success) {
           status = 'updated';
+          // Ensure correct message on success
           if (isWarMode) {
-            message = 'logic.priceWarDetected';
+             message = 'logic.priceWarDetected';
           } else if (message === 'logic.priceWarRecovery') {
-            // keep the recovery message
-            messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
+             messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
           } else {
             message = 'logic.updateSuccess';
             messageParams = { ...messageParams, newPrice: newPrice.toLocaleString('id-ID') };
