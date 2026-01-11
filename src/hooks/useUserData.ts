@@ -71,12 +71,11 @@ const useUserData = () => {
     };
     
     setLogs(prev => {
-      // Cek duplikasi berdasarkan timestamp dan pesan
-      const isDuplicate = prev.some(l => l.createdAt === createdAt && l.message === newLog.message);
+      // Cek apakah log ini sudah ada (mencegah double insert dari realtime vs initial load)
+      const isDuplicate = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (isDuplicate) return prev;
       
-      const updated = [newLog, ...prev];
-      return updated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 200);
+      return [newLog, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100);
     });
   }, []);
 
@@ -96,7 +95,7 @@ const useUserData = () => {
           setProducts(productsData.map(mapDbToProductStatus));
         }
 
-        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100);
+        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
         if (logsData) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
@@ -114,19 +113,22 @@ const useUserData = () => {
 
     loadInitialData();
 
+    // Menggunakan filter user_id eksplisit untuk memastikan keakuratan data realtime
     const channel = supabase
-      .channel(`user-realtime-${user.id}`)
+      .channel(`db-sync-${user.id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
-        table: 'product_logs'
+        table: 'product_logs',
+        filter: `user_id=eq.${user.id}`
       }, (payload) => {
         addLog(payload.new.log_data, payload.new.created_at);
       })
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
-        table: 'user_products'
+        table: 'user_products',
+        filter: `user_id=eq.${user.id}`
       }, (payload) => {
         if (payload.eventType === 'DELETE') {
           setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
@@ -146,7 +148,8 @@ const useUserData = () => {
       .on('postgres_changes', { 
         event: 'UPDATE', 
         schema: 'public', 
-        table: 'user_configurations'
+        table: 'user_configurations',
+        filter: `user_id=eq.${user.id}`
       }, (payload) => {
         setConfig(payload.new as UserConfig);
       })
@@ -240,7 +243,6 @@ const useUserData = () => {
   const processSingleProduct = useCallback(async (productId: number) => {
     if (!user) return false;
     
-    // Set loading state locally for immediate feedback
     setProducts(prev => prev.map(p => 
       String(p.product_id) === String(productId) 
         ? { ...p, status: 'loading', message: 'logic.checking' } 
@@ -254,7 +256,7 @@ const useUserData = () => {
       
       if (error) throw error;
       
-      // If we got a direct result, update UI immediately as fallback for realtime
+      // Fallback update jika realtime terlambat
       if (data && data.status) {
         setProducts(prev => prev.map(p => 
           String(p.product_id) === String(productId) 
@@ -274,7 +276,6 @@ const useUserData = () => {
       
       return true;
     } catch (error) {
-      // Revert status on error
       setProducts(prev => prev.map(p => 
         String(p.product_id) === String(productId) 
           ? { ...p, status: 'error', message: 'logic.processFailed' } 
