@@ -111,9 +111,15 @@ serve(async (req) => {
         if (myIndex === 0) {
           const p2 = competitorList[1]
           if (!p2) {
-            result.status = 'success'
-            result.message = 'logic.onlySellerAtMax'
-            result.newPrice = maxPrice
+            // Perbaikan di sini: Cek apakah harga sekarang sudah di harga maksimal
+            if (result.myPrice !== null && result.myPrice < maxPrice) {
+              result.status = 'updated'
+              result.message = 'logic.onlySellerSetMax'
+              result.newPrice = maxPrice
+            } else {
+              result.status = 'success'
+              result.message = 'logic.onlySellerAtMax'
+            }
           } else {
             result.competitorPrice = p2.price
             result.competitorStoreName = p2.seller?.shop_name || 'Unknown'
