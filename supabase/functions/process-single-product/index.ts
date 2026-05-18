@@ -178,6 +178,8 @@ serve(async (req) => {
     if (result.status === 'updated' && result.newPrice !== null) {
       if (result.newPrice < minPrice) {
         result.newPrice = minPrice;
+        // UPDATE: Ubah status ke 'error' agar user mudah melihat produk yang mentok harga bawah
+        result.status = 'error'; 
         result.message = 'logic.priceWarCooldown';
         result.messageParams = { 
           minPrice: minPrice.toLocaleString('id-ID'),
@@ -203,11 +205,10 @@ serve(async (req) => {
       }
     }
 
-    const dbProposedPrice = result.status === 'updated' && result.newPrice !== null 
+    const dbProposedPrice = result.status === 'updated' || result.status === 'error' && result.newPrice !== null 
       ? result.newPrice 
       : (result.myPrice !== null ? result.myPrice : product.proposed_price);
 
-    // UPDATE: Tambahkan cron_last_run_at agar scheduler tahu produk ini sudah diproses
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
