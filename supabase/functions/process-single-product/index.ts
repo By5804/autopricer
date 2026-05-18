@@ -100,12 +100,13 @@ serve(async (req) => {
       if (myIndex === -1) {
         const p1 = competitorList[0]
         result.competitorPrice = p1.price
-        result.competitorStoreName = p1.seller?.shop_name
+        result.competitorStoreName = p1.seller?.shop_name || 'Unknown'
         result.competitorStock = p1.stock
         result.competitorSoldCount = getSoldCount(p1)
         
         result.status = 'error'
         result.message = 'logic.outOfStock'
+        result.messageParams = { competitorStoreName: result.competitorStoreName }
       } else {
         if (myIndex === 0) {
           const p2 = competitorList[1]
@@ -115,7 +116,7 @@ serve(async (req) => {
             result.newPrice = maxPrice
           } else {
             result.competitorPrice = p2.price
-            result.competitorStoreName = p2.seller?.shop_name
+            result.competitorStoreName = p2.seller?.shop_name || 'Unknown'
             result.competitorStock = p2.stock
             result.competitorSoldCount = getSoldCount(p2)
 
@@ -123,7 +124,10 @@ serve(async (req) => {
               result.newPrice = Math.min(roundPrice(p2.price - normalUndercut), maxPrice)
               result.status = 'updated'
               result.message = 'logic.maximizeProfit'
-              result.messageParams = { newPrice: result.newPrice.toLocaleString('id-ID') }
+              result.messageParams = { 
+                newPrice: result.newPrice.toLocaleString('id-ID'),
+                competitorStoreName: result.competitorStoreName
+              }
             } else {
               result.status = 'success'
               result.message = 'logic.cheapestOptimal'
@@ -136,7 +140,7 @@ serve(async (req) => {
           const displayTarget = target || p1
           
           result.competitorPrice = displayTarget.price
-          result.competitorStoreName = displayTarget.seller?.shop_name
+          result.competitorStoreName = displayTarget.seller?.shop_name || 'Unknown'
           result.competitorStock = displayTarget.stock
           result.competitorSoldCount = getSoldCount(displayTarget)
 
@@ -151,14 +155,14 @@ serve(async (req) => {
             if (isRival) {
               result.message = 'logic.priceWarDetected'
               result.messageParams = { 
-                rivalStoreName: target.seller?.shop_name, 
+                rivalStoreName: target.seller?.shop_name || 'Rival', 
                 newPrice: result.newPrice.toLocaleString('id-ID'),
                 minPrice: minPrice.toLocaleString('id-ID')
               }
             } else {
               result.message = 'logic.undercutting'
               result.messageParams = { 
-                competitorStoreName: target.seller?.shop_name, 
+                competitorStoreName: target.seller?.shop_name || 'Competitor', 
                 rank: competitorList.indexOf(target) + 1 
               }
             }
@@ -170,40 +174,37 @@ serve(async (req) => {
       }
     }
 
-    if (result.status === 'updated' && result.newPrice) {
+    // Logika Floor (Min Price) yang lebih cerdas
+    if (result.status === 'updated' && result.newPrice !== null) {
       if (result.newPrice < minPrice) {
-        const isWar = result.message === 'logic.priceWarDetected';
-        if (isWar) {
-          result.newPrice = minPrice;
-          result.messageParams.newPrice = minPrice.toLocaleString('id-ID');
-        } else {
-          result.status = 'error'
-          result.message = 'logic.violatesMinPrice'
-          result.messageParams = { proposedPrice: result.newPrice.toLocaleString('id-ID'), minPrice: minPrice.toLocaleString('id-ID') }
-        }
+        // Jika harga usulan di bawah min_price, kita paksa ke min_price saja daripada error
+        result.newPrice = minPrice;
+        result.message = 'logic.priceWarCooldown'; // Menggunakan pesan cooldown/floor
+        result.messageParams = { 
+          minPrice: minPrice.toLocaleString('id-ID'),
+          rivalStoreName: result.competitorStoreName || 'Market'
+        };
       }
       
-      if (result.status === 'updated') {
-        const nonce = Math.floor(Date.now() / 1000).toString()
-        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"])
-        const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: result.newPrice }, key)
+      // Lakukan update harga ke Itemku
+      const nonce = Math.floor(Date.now() / 1000).toString()
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"])
+      const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: result.newPrice }, key)
 
-        const upRes = await fetch("https://tokoku-gateway.itemku.com/api/product/price/update", {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
-          body: JSON.stringify({ product_id: product.product_id, new_price: result.newPrice })
-        })
-        const upData = await upRes.json().catch(() => ({}))
-        if (!upData.success) {
-          result.status = 'error'
-          result.message = 'logic.updateFail'
-          result.messageParams = { errorMessage: upData.message || 'API Error' }
-        }
+      const upRes = await fetch("https://tokoku-gateway.itemku.com/api/product/price/update", {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Api-Key': api_key, 'Nonce': nonce },
+        body: JSON.stringify({ product_id: product.product_id, new_price: result.newPrice })
+      })
+      const upData = await upRes.json().catch(() => ({}))
+      
+      if (!upData.success) {
+        result.status = 'error'
+        result.message = 'logic.updateFail'
+        result.messageParams = { errorMessage: upData.message || 'API Error' }
       }
     }
 
-    // UPDATE PENTING: Jika status bukan updated, proposed_price diatur sama dengan myPrice
-    // Ini agar dashboard tidak menampilkan harga usulan lama yang sudah tidak aktif
     const dbProposedPrice = result.status === 'updated' && result.newPrice !== null 
       ? result.newPrice 
       : (result.myPrice !== null ? result.myPrice : product.proposed_price);
@@ -226,7 +227,12 @@ serve(async (req) => {
     await supabaseAdmin.from('product_logs').insert({
       user_id: userId,
       product_id: productId,
-      log_data: { status: result.status, message: result.message, messageParams: result.messageParams, productName }
+      log_data: { 
+        status: result.status, 
+        message: result.message, 
+        messageParams: result.messageParams, 
+        productName 
+      }
     })
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
