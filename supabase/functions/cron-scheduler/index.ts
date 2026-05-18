@@ -39,18 +39,13 @@ serve(async (req) => {
       return new Response(JSON.stringify({ message: "No products due." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    console.log(`[cron-scheduler] Processing ${productsToProcess.length} products in a single invocation.`);
+    console.log(`[cron-scheduler] Processing ${productsToProcess.length} products.`);
 
-    // Proses secara berurutan atau batch kecil untuk menghindari timeout
-    // Di sini kita memanggil process-single-product secara internal (loop)
-    // Namun untuk menghemat kuota, kita akan memprosesnya di sini langsung jika memungkinkan
-    // Untuk saat ini, kita tetap panggil invoke tapi dalam jumlah terbatas atau gabungkan logikanya
-    
+    const processedUserIds = new Set<string>();
     const results = [];
+
     for (const item of productsToProcess) {
-      // Kita panggil fungsi pemroses. Karena ini dipanggil dari dalam Edge Function lain, 
-      // ini tetap dihitung sebagai invocation, TAPI kita bisa memindahkan logika ke sini nanti.
-      // Solusi terbaik: Pindahkan logika process-single-product ke dalam loop di sini.
+      processedUserIds.add(item.user_id);
       
       const res = await supabaseAdmin.functions.invoke('process-single-product', {
         body: { user_id: item.user_id, product_id: item.product_id },
@@ -58,9 +53,19 @@ serve(async (req) => {
       results.push({ id: item.product_id, success: !res.error });
     }
 
+    // UPDATE: Perbarui waktu jalan terakhir secara global untuk tiap user yang diproses
+    const now = new Date().toISOString();
+    for (const userId of processedUserIds) {
+      await supabaseAdmin
+        .from('user_configurations')
+        .update({ cron_last_run_at: now })
+        .eq('user_id', userId);
+    }
+
     return new Response(JSON.stringify({ processed: results.length }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
+    console.error("[cron-scheduler] Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

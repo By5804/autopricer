@@ -111,15 +111,9 @@ serve(async (req) => {
         if (myIndex === 0) {
           const p2 = competitorList[1]
           if (!p2) {
-            // Perbaikan di sini: Cek apakah harga sekarang sudah di harga maksimal
-            if (result.myPrice !== null && result.myPrice < maxPrice) {
-              result.status = 'updated'
-              result.message = 'logic.onlySellerSetMax'
-              result.newPrice = maxPrice
-            } else {
-              result.status = 'success'
-              result.message = 'logic.onlySellerAtMax'
-            }
+            result.status = 'success'
+            result.message = 'logic.onlySellerAtMax'
+            result.newPrice = maxPrice
           } else {
             result.competitorPrice = p2.price
             result.competitorStoreName = p2.seller?.shop_name || 'Unknown'
@@ -180,19 +174,17 @@ serve(async (req) => {
       }
     }
 
-    // Logika Floor (Min Price) yang lebih cerdas
+    // Logika Floor (Min Price)
     if (result.status === 'updated' && result.newPrice !== null) {
       if (result.newPrice < minPrice) {
-        // Jika harga usulan di bawah min_price, kita paksa ke min_price saja daripada error
         result.newPrice = minPrice;
-        result.message = 'logic.priceWarCooldown'; // Menggunakan pesan cooldown/floor
+        result.message = 'logic.priceWarCooldown';
         result.messageParams = { 
           minPrice: minPrice.toLocaleString('id-ID'),
           rivalStoreName: result.competitorStoreName || 'Market'
         };
       }
       
-      // Lakukan update harga ke Itemku
       const nonce = Math.floor(Date.now() / 1000).toString()
       const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret_key), { name: "HMAC", hash: { name: "SHA-256" } }, false, ["sign"])
       const token = await create({ alg: "HS256", "X-Api-Key": api_key, Nonce: nonce }, { product_id: product.product_id, new_price: result.newPrice }, key)
@@ -215,6 +207,7 @@ serve(async (req) => {
       ? result.newPrice 
       : (result.myPrice !== null ? result.myPrice : product.proposed_price);
 
+    // UPDATE: Tambahkan cron_last_run_at agar scheduler tahu produk ini sudah diproses
     await supabaseAdmin.from('user_products').update({
       last_status: result.status,
       last_message: result.message,
@@ -227,6 +220,7 @@ serve(async (req) => {
       last_competitor_store_name: result.competitorStoreName,
       last_competitor_stock: result.competitorStock,
       last_competitor_sold_count: result.competitorSoldCount,
+      cron_last_run_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }).eq('id', product.id)
 
