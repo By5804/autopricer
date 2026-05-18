@@ -3,18 +3,18 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
 
+  try {
     let force = false;
     try {
       const body = await req.json();
@@ -24,79 +24,43 @@ serve(async (req) => {
     let productsToProcess = [];
 
     if (force) {
-      // Ambil semua produk aktif
       const { data } = await supabaseAdmin
         .from('user_products')
-        .select('user_id, product_id, cron_interval_minutes')
+        .select('user_id, product_id')
         .eq('is_active', true);
       productsToProcess = data || [];
     } else {
-      // Ambil produk yang sudah waktunya (due) melalui RPC
-      // Kita ambil detail tambahan untuk mengecek apakah ini custom interval
       const { data, error: rpcError } = await supabaseAdmin.rpc('get_due_products');
       if (rpcError) throw rpcError;
-      
-      if (data && data.length > 0) {
-        const productIds = data.map((p: any) => p.product_id);
-        const { data: details } = await supabaseAdmin
-          .from('user_products')
-          .select('user_id, product_id, cron_interval_minutes')
-          .in('product_id', productIds);
-        productsToProcess = details || [];
-      }
+      productsToProcess = data ? data.map((p: any) => ({ user_id: p.u_id, product_id: p.p_id })) : [];
     }
 
     if (productsToProcess.length === 0) {
-      return new Response(JSON.stringify({ message: "No products due for update." }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
-      });
+      return new Response(JSON.stringify({ message: "No products due." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const now = new Date().toISOString();
-    const productIds = productsToProcess.map(p => p.product_id);
+    console.log(`[cron-scheduler] Processing ${productsToProcess.length} products in a single invocation.`);
+
+    // Proses secara berurutan atau batch kecil untuk menghindari timeout
+    // Di sini kita memanggil process-single-product secara internal (loop)
+    // Namun untuk menghemat kuota, kita akan memprosesnya di sini langsung jika memungkinkan
+    // Untuk saat ini, kita tetap panggil invoke tapi dalam jumlah terbatas atau gabungkan logikanya
     
-    // Identifikasi user yang memiliki produk yang menggunakan interval GLOBAL (cron_interval_minutes IS NULL)
-    // Atau jika ini adalah 'force run', kita anggap ini pembaruan global
-    const globalUserIds = force 
-      ? [...new Set(productsToProcess.map(p => p.user_id))]
-      : [...new Set(productsToProcess.filter(p => !p.cron_interval_minutes).map(p => p.user_id))];
-
-    // 1. Update timestamp terakhir jalan untuk PRODUK (selalu diupdate)
-    await supabaseAdmin
-      .from('user_products')
-      .update({ cron_last_run_at: now })
-      .in('product_id', productIds);
-
-    // 2. Update timestamp terakhir jalan untuk KONFIGURASI GLOBAL 
-    // HANYA jika ada produk non-custom yang diproses (agar UI Countdown tidak reset terus-menerus)
-    if (globalUserIds.length > 0) {
-      await supabaseAdmin
-        .from('user_configurations')
-        .update({ cron_last_run_at: now })
-        .in('user_id', globalUserIds);
+    const results = [];
+    for (const item of productsToProcess) {
+      // Kita panggil fungsi pemroses. Karena ini dipanggil dari dalam Edge Function lain, 
+      // ini tetap dihitung sebagai invocation, TAPI kita bisa memindahkan logika ke sini nanti.
+      // Solusi terbaik: Pindahkan logika process-single-product ke dalam loop di sini.
+      
+      const res = await supabaseAdmin.functions.invoke('process-single-product', {
+        body: { user_id: item.user_id, product_id: item.product_id },
+      });
+      results.push({ id: item.product_id, success: !res.error });
     }
 
-    // Jalankan pemrosesan secara paralel
-    const processingPromises = productsToProcess.map(product =>
-      supabaseAdmin.functions.invoke('process-single-product', {
-        body: { user_id: product.user_id, product_id: product.product_id },
-      })
-    );
-
-    // Kita tidak menunggu sampai selesai di sini agar cron tidak timeout
-    Promise.allSettled(processingPromises);
-
-    return new Response(JSON.stringify({ 
-      message: `Processing ${productsToProcess.length} products.`,
-      globalUpdate: globalUserIds.length > 0 
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200,
-    });
+    return new Response(JSON.stringify({ processed: results.length }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
-    console.error("[cron-scheduler] Error:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500,
-    });
+    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
