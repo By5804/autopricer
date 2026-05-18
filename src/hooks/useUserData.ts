@@ -31,6 +31,14 @@ const useUserData = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const parseParams = (params: any) => {
+    if (!params) return {};
+    if (typeof params === 'string') {
+      try { return JSON.parse(params); } catch (e) { return {}; }
+    }
+    return params;
+  };
+
   const mapDbToProductStatus = useCallback((p: any): ProductStatus => ({
     id: p.id,
     product_id: Number(p.product_id),
@@ -49,7 +57,7 @@ const useUserData = () => {
     rivalStoreName: p.rival_store_name,
     status: (p.last_status as any) || 'idle',
     message: p.last_message || 'logic.waiting',
-    messageParams: p.last_message_params || {},
+    messageParams: parseParams(p.last_message_params),
     myPrice: p.last_my_price,
     myStock: p.last_my_stock,
     mySoldCount: (p.last_my_sold_count as any) || 0,
@@ -65,16 +73,14 @@ const useUserData = () => {
     
     const newLog: LogEntry = {
       message: logData.message || 'Activity log entry',
-      messageParams: logData.messageParams || {},
+      messageParams: parseParams(logData.messageParams),
       productName: logData.productName || 'Product',
       createdAt: createdAt
     };
     
     setLogs(prev => {
-      // Cek apakah log ini sudah ada (mencegah double insert dari realtime vs initial load)
       const isDuplicate = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (isDuplicate) return prev;
-      
       return [newLog, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100);
     });
   }, []);
@@ -99,7 +105,7 @@ const useUserData = () => {
         if (logsData) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
-            messageParams: l.log_data?.messageParams || {},
+            messageParams: parseParams(l.log_data?.messageParams),
             productName: l.log_data?.productName || l.log_data?.name || 'Product',
             createdAt: l.created_at
           })));
@@ -113,7 +119,6 @@ const useUserData = () => {
 
     loadInitialData();
 
-    // Menggunakan filter user_id eksplisit untuk memastikan keakuratan data realtime
     const channel = supabase
       .channel(`db-sync-${user.id}`)
       .on('postgres_changes', { 
@@ -256,7 +261,6 @@ const useUserData = () => {
       
       if (error) throw error;
       
-      // Fallback update jika realtime terlambat
       if (data && data.status) {
         setProducts(prev => prev.map(p => 
           String(p.product_id) === String(productId) 
@@ -264,7 +268,7 @@ const useUserData = () => {
                 ...p, 
                 status: data.status, 
                 message: data.message, 
-                messageParams: data.messageParams || {},
+                messageParams: parseParams(data.messageParams),
                 newPrice: data.newPrice || p.newPrice,
                 myPrice: data.myPrice || p.myPrice,
                 competitorPrice: data.competitorPrice || p.competitorPrice,

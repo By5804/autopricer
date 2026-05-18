@@ -29,14 +29,19 @@ const translations: Record<string, string> = {
   "logic.priceWarCooldown": "Harga pasar di bawah floor. Bertahan di Harga Minimum Rp {{minPrice}} (vs {{rivalStoreName}}).",
 };
 
-export const formatMessage = (key: string, params?: Record<string, string | number | undefined>): string => {
+export const formatMessage = (key: string, params?: any): string => {
   let message = translations[key] || key;
-  if (params) {
-    Object.entries(params).forEach(([paramKey, paramValue]) => {
-      if (paramValue !== undefined) {
-        message = message.replace(new RegExp(`{{${paramKey}}}`, 'g'), String(paramValue));
+  
+  if (params && typeof params === 'object') {
+    Object.keys(params).forEach((paramKey) => {
+      const value = params[paramKey];
+      if (value !== undefined && value !== null) {
+        // Mengganti {{key}} dengan value
+        const regex = new RegExp(`\\{\\{\\s*${paramKey}\\s*\\}\\}`, 'g');
+        message = message.replace(regex, String(value));
       }
     });
   }
+  
   return message;
 };

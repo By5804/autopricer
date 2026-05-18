@@ -269,13 +269,11 @@ export const Products = () => {
         />
       </Dialog>
 
-      {config && (
-        <NextRunCountdown 
-          lastRunAt={config.cron_last_run_at} 
-          intervalMinutes={config.cron_interval_minutes} 
-          isCronActive={config.is_cron_active} 
-        />
-      )}
+      <NextRunCountdown 
+        lastRunAt={config?.cron_last_run_at || null} 
+        intervalMinutes={config?.cron_interval_minutes || 5} 
+        isCronActive={config?.is_cron_active || false} 
+      />
 
       {logs.length > 0 && (
         <Card>
