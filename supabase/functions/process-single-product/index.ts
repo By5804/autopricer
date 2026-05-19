@@ -52,6 +52,7 @@ serve(async (req) => {
     const priceWarUndercut = Math.max(10, Number(warUndercut) || normalUndercut)
     const whitelistedStores = whitelist ? whitelist.split(',').map((n: string) => n.trim().toLowerCase()) : []
 
+    // 1. Ambil data pasar (Top 50)
     const scrapeRes = await fetch(`https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`)
     if (!scrapeRes.ok) throw new Error(`Scrape API failed: ${scrapeRes.status}`)
     
@@ -67,25 +68,28 @@ serve(async (req) => {
       newPrice: null
     }
 
+    // 2. Cari produk saya di list
     const normalizedMyStore = store_name.trim().toLowerCase();
     let myProduct = competitorList.find((p: any) => p.seller?.shop_name?.trim().toLowerCase() === normalizedMyStore)
     
-    if (!myProduct) {
-      try {
-        const directRes = await fetch(`https://api-gateway.itemku.com/v1/product?id=${productId}`)
-        if (directRes.ok) {
-          const directData = await directRes.json()
-          const directInfo = directData?.data?.data?.[0]
-          if (directInfo) {
-            result.myPrice = directInfo.price
-            result.myStock = directInfo.stock
-            result.mySoldCount = getSoldCount(directInfo)
-          }
+    // 3. Fallback: Ambil data stok saya langsung via ID jika tidak ada di Top 50
+    try {
+      const directRes = await fetch(`https://api-gateway.itemku.com/v1/product?id=${productId}`)
+      if (directRes.ok) {
+        const directData = await directRes.json()
+        const directInfo = directData?.data?.data?.[0]
+        if (directInfo) {
+          result.myPrice = directInfo.price
+          result.myStock = directInfo.stock
+          result.mySoldCount = getSoldCount(directInfo)
         }
-      } catch (e) {
-        console.error("[process-single-product] Direct fetch fallback failed:", e.message)
       }
-    } else {
+    } catch (e) {
+      console.error("[process-single-product] Direct fetch fallback failed:", e.message)
+    }
+
+    // Jika ada di list, gunakan data dari list (lebih akurat untuk posisi)
+    if (myProduct) {
       result.myPrice = myProduct.price
       result.myStock = myProduct.stock
       result.mySoldCount = getSoldCount(myProduct)
@@ -98,6 +102,7 @@ serve(async (req) => {
       const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1
 
       if (myIndex === -1) {
+        // Saya tidak ada di 10 termurah
         const p1 = competitorList[0]
         result.competitorPrice = p1.price
         result.competitorStoreName = p1.seller?.shop_name || 'Unknown'
@@ -109,6 +114,7 @@ serve(async (req) => {
         result.messageParams = { competitorStoreName: result.competitorStoreName }
       } else {
         if (myIndex === 0) {
+          // Saya termurah #1
           const p2 = competitorList[1]
           if (!p2) {
             result.status = 'success'
@@ -134,6 +140,7 @@ serve(async (req) => {
             }
           }
         } else {
+          // Saya bukan termurah, cari target di atas saya
           const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.trim().toLowerCase()))
           
           const p1 = competitorList[0]
@@ -178,7 +185,6 @@ serve(async (req) => {
     if (result.status === 'updated' && result.newPrice !== null) {
       if (result.newPrice < minPrice) {
         result.newPrice = minPrice;
-        // UPDATE: Ubah status ke 'error' agar user mudah melihat produk yang mentok harga bawah
         result.status = 'error'; 
         result.message = 'logic.priceWarCooldown';
         result.messageParams = { 
@@ -205,7 +211,8 @@ serve(async (req) => {
       }
     }
 
-    const dbProposedPrice = result.status === 'updated' || result.status === 'error' && result.newPrice !== null 
+    // Simpan ke Database
+    const dbProposedPrice = (result.status === 'updated' || result.status === 'error') && result.newPrice !== null 
       ? result.newPrice 
       : (result.myPrice !== null ? result.myPrice : product.proposed_price);
 
