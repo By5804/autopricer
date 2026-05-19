@@ -96,13 +96,20 @@ serve(async (req) => {
     }
 
     if (competitorList.length === 0) {
-      result.status = 'error'
-      result.message = 'logic.noCompetitor'
+      // Benar-benar tidak ada penjual sama sekali di pasar (termasuk saya tidak terdeteksi)
+      if (result.myPrice !== null && result.myPrice < maxPrice) {
+        result.newPrice = maxPrice
+        result.status = 'updated'
+        result.message = 'logic.onlySellerSetMax'
+      } else {
+        result.status = 'success'
+        result.message = 'logic.onlySellerAtMax'
+      }
     } else {
       const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1
 
       if (myIndex === -1) {
-        // Saya tidak ada di 10 termurah
+        // Saya tidak ada di 50 termurah
         const p1 = competitorList[0]
         result.competitorPrice = p1.price
         result.competitorStoreName = p1.seller?.shop_name || 'Unknown'
@@ -117,9 +124,15 @@ serve(async (req) => {
           // Saya termurah #1
           const p2 = competitorList[1]
           if (!p2) {
-            result.status = 'success'
-            result.message = 'logic.onlySellerAtMax'
-            result.newPrice = maxPrice
+            // Hanya saya satu-satunya penjual di Top 50
+            if (result.myPrice !== null && result.myPrice < maxPrice) {
+              result.newPrice = maxPrice
+              result.status = 'updated'
+              result.message = 'logic.onlySellerSetMax'
+            } else {
+              result.status = 'success'
+              result.message = 'logic.onlySellerAtMax'
+            }
           } else {
             result.competitorPrice = p2.price
             result.competitorStoreName = p2.seller?.shop_name || 'Unknown'
@@ -181,7 +194,7 @@ serve(async (req) => {
       }
     }
 
-    // Logika Floor (Min Price)
+    // Logika Floor (Min Price) & Eksekusi Update
     if (result.status === 'updated' && result.newPrice !== null) {
       if (result.newPrice < minPrice) {
         result.newPrice = minPrice;
