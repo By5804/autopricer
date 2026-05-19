@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { showError, showSuccess } from '@/utils/toast';
-import useUserData from '@/hooks/useUserData';
+import { useUserData } from '@/contexts/UserDataContext';
 import { Clock, Save, ShieldAlert } from 'lucide-react';
 
 export const Configuration = () => {

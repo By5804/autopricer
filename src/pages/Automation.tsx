@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Bot, Clock, Settings } from 'lucide-react';
-import useUserData from '@/hooks/useUserData';
+import { useUserData } from '@/contexts/UserDataContext';
 import { showError, showSuccess } from '@/utils/toast';
 import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';

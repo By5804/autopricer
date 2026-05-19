@@ -8,7 +8,7 @@ import { ProductForm } from '@/components/ProductForm';
 import { ProductTable } from '@/components/ProductTable';
 import { LogicExplanationDialog } from '@/components/LogicExplanationDialog';
 import { ChevronsDown, ChevronsUp, Play, Loader2, ListFilter } from 'lucide-react';
-import useUserData from '@/hooks/useUserData';
+import { useUserData } from '@/contexts/UserDataContext';
 import type { Product, ProductStatus } from '@/types';
 import { showError, showSuccess, showLoading, dismissToast } from '@/utils/toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
