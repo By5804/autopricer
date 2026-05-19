@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { UserDataProvider } from "@/contexts/UserDataContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Layout } from "@/components/Layout";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -21,45 +22,45 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/pending-approval" element={<PendingApproval />} />
-            
-            {/* Rute untuk Pengguna Biasa */}
-            <Route 
-              path="/" 
-              element={
-                <ProtectedRoute requiredRole="user">
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Products />} />
-              <Route path="configuration" element={<Configuration />} />
-              <Route path="automation" element={<Automation />} />
-            </Route>
+      <UserDataProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/pending-approval" element={<PendingApproval />} />
+              
+              <Route 
+                path="/" 
+                element={
+                  <ProtectedRoute requiredRole="user">
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Products />} />
+                <Route path="configuration" element={<Configuration />} />
+                <Route path="automation" element={<Automation />} />
+              </Route>
 
-            {/* Rute untuk Admin */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute requiredRole="admin">
-                  <AdminLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<AdminDashboard />} />
-              <Route path="users" element={<UserManagement />} />
-            </Route>
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute requiredRole="admin">
+                    <AdminLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<AdminDashboard />} />
+                <Route path="users" element={<UserManagement />} />
+              </Route>
 
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </UserDataProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

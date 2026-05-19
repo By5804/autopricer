@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Product, ProductStatus } from '@/types';
-import { showError, showSuccess } from '@/utils/toast';
 
 export interface UserConfig {
   api_key: string;
@@ -24,7 +23,21 @@ export interface LogEntry {
   createdAt: string;
 }
 
-const useUserData = () => {
+interface UserDataContextType {
+  config: UserConfig | null;
+  products: ProductStatus[];
+  logs: LogEntry[];
+  loading: boolean;
+  saveConfig: (newConfig: Partial<UserConfig>) => Promise<boolean>;
+  saveProduct: (product: Omit<Product, 'isActive'> & { id?: number }) => Promise<boolean>;
+  deleteProduct: (productId: number) => Promise<boolean>;
+  batchUpdateProductStatus: (updates: { productId: number; isActive: boolean }[]) => Promise<boolean>;
+  processSingleProduct: (productId: number) => Promise<boolean>;
+}
+
+const UserDataContext = createContext<UserDataContextType | undefined>(undefined);
+
+export const UserDataProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const [config, setConfig] = useState<UserConfig | null>(null);
   const [products, setProducts] = useState<ProductStatus[]>([]);
@@ -70,14 +83,12 @@ const useUserData = () => {
 
   const addLog = useCallback((logData: any, createdAt: string) => {
     if (!logData) return;
-    
     const newLog: LogEntry = {
       message: logData.message || 'Activity log entry',
       messageParams: parseParams(logData.messageParams),
       productName: logData.productName || 'Product',
       createdAt: createdAt
     };
-    
     setLogs(prev => {
       const isDuplicate = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (isDuplicate) return prev;
@@ -88,6 +99,9 @@ const useUserData = () => {
   useEffect(() => {
     if (!user) {
       setLoading(false);
+      setConfig(null);
+      setProducts([]);
+      setLogs([]);
       return;
     }
 
@@ -97,9 +111,7 @@ const useUserData = () => {
         if (configData) setConfig(configData);
 
         const { data: productsData } = await supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-        if (productsData) {
-          setProducts(productsData.map(mapDbToProductStatus));
-        }
+        if (productsData) setProducts(productsData.map(mapDbToProductStatus));
 
         const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
         if (logsData) {
@@ -121,20 +133,10 @@ const useUserData = () => {
 
     const channel = supabase
       .channel(`db-sync-${user.id}`)
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'product_logs',
-        filter: `user_id=eq.${user.id}`
-      }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs', filter: `user_id=eq.${user.id}` }, (payload) => {
         addLog(payload.new.log_data, payload.new.created_at);
       })
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'user_products',
-        filter: `user_id=eq.${user.id}`
-      }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_products', filter: `user_id=eq.${user.id}` }, (payload) => {
         if (payload.eventType === 'DELETE') {
           setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
         } else {
@@ -150,12 +152,7 @@ const useUserData = () => {
           });
         }
       })
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'user_configurations',
-        filter: `user_id=eq.${user.id}`
-      }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configurations', filter: `user_id=eq.${user.id}` }, (payload) => {
         setConfig(payload.new as UserConfig);
       })
       .subscribe();
@@ -169,8 +166,7 @@ const useUserData = () => {
     if (!user) return false;
     try {
       const { error } = await supabase.from('user_configurations').upsert({ user_id: user.id, ...newConfig, updated_at: new Date().toISOString() });
-      if (error) throw error;
-      return true;
+      return !error;
     } catch (e) { return false; }
   };
 
@@ -178,7 +174,6 @@ const useUserData = () => {
     if (!user) return false;
     try {
       const existingProduct = products.find(p => String(p.product_id) === String(product.product_id));
-      
       const productData: any = {
         user_id: user.id,
         product_id: product.product_id,
@@ -197,16 +192,10 @@ const useUserData = () => {
         rival_store_name: product.rivalStoreName || null,
         updated_at: new Date().toISOString()
       };
-
-      if (product.id) {
-        productData.id = product.id;
-      } else if (existingProduct) {
-        productData.id = existingProduct.id;
-      }
-
+      if (product.id) productData.id = product.id;
+      else if (existingProduct) productData.id = existingProduct.id;
       const { error } = await supabase.from('user_products').upsert(productData);
-      if (error) throw error;
-      return true;
+      return !error;
     } catch (e) { return false; }
   };
 
@@ -214,82 +203,42 @@ const useUserData = () => {
     if (!user) return false;
     try {
       const { error } = await supabase.from('user_products').delete().eq('user_id', user.id).eq('product_id', productId);
-      if (error) throw error;
-      return true;
+      return !error;
     } catch (e) { return false; }
   };
 
   const batchUpdateProductStatus = async (updates: { productId: number; isActive: boolean }[]) => {
     if (!user) return false;
-    
-    const originalProducts = [...products];
-    setProducts(prev => prev.map(p => {
-      const update = updates.find(u => String(u.productId) === String(p.product_id));
-      return update ? { ...p, isActive: update.isActive } : p;
-    }));
-
     try {
       for (const update of updates) {
-        const { error } = await supabase
-          .from('user_products')
-          .update({ is_active: update.isActive, updated_at: new Date().toISOString() })
-          .eq('user_id', user.id)
-          .eq('product_id', update.productId);
-        
-        if (error) throw error;
+        await supabase.from('user_products').update({ is_active: update.isActive, updated_at: new Date().toISOString() }).eq('user_id', user.id).eq('product_id', update.productId);
       }
       return true;
-    } catch (e) {
-      setProducts(originalProducts);
+    } catch (e) { return false; }
+  };
+
+  const processSingleProduct = async (productId: number) => {
+    if (!user) return false;
+    setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'loading', message: 'logic.checking' } : p));
+    try {
+      const { data, error } = await supabase.functions.invoke('process-single-product', { body: { user_id: user.id, product_id: productId } });
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
       return false;
     }
   };
 
-  const processSingleProduct = useCallback(async (productId: number) => {
-    if (!user) return false;
-    
-    setProducts(prev => prev.map(p => 
-      String(p.product_id) === String(productId) 
-        ? { ...p, status: 'loading', message: 'logic.checking' } 
-        : p
-    ));
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('process-single-product', {
-        body: { user_id: user.id, product_id: productId },
-      });
-      
-      if (error) throw error;
-      
-      if (data && data.status) {
-        setProducts(prev => prev.map(p => 
-          String(p.product_id) === String(productId) 
-            ? { 
-                ...p, 
-                status: data.status, 
-                message: data.message, 
-                messageParams: parseParams(data.messageParams),
-                newPrice: data.newPrice || p.newPrice,
-                myPrice: data.myPrice || p.myPrice,
-                competitorPrice: data.competitorPrice || p.competitorPrice,
-                competitorStoreName: data.competitorStoreName || p.competitorStoreName
-              } 
-            : p
-        ));
-      }
-      
-      return true;
-    } catch (error) {
-      setProducts(prev => prev.map(p => 
-        String(p.product_id) === String(productId) 
-          ? { ...p, status: 'error', message: 'logic.processFailed' } 
-          : p
-      ));
-      return false;
-    }
-  }, [user]);
-
-  return { config, products, loading, logs, saveConfig, saveProduct, deleteProduct, batchUpdateProductStatus, processSingleProduct };
+  return (
+    <UserDataContext.Provider value={{ config, products, logs, loading, saveConfig, saveProduct, deleteProduct, batchUpdateProductStatus, processSingleProduct }}>
+      {children}
+    </UserDataContext.Provider>
+  );
 };
 
-export default useUserData;
+export const useUserData = () => {
+  const context = useContext(UserDataContext);
+  if (context === undefined) throw new Error('useUserData must be used within a UserDataProvider');
+  return context;
+};

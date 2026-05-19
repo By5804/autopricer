@@ -34,31 +34,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchProfile = (userId: string) => {
-      supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle() // Menggunakan maybeSingle untuk menghindari error jika tidak ditemukan
-        .then(({ data, error: profileError }) => {
-          if (profileError) {
-            console.error('Error fetching profile:', profileError);
-            setError(`Gagal memuat profil pengguna: ${profileError.message}`);
-            setProfile(null);
-          } else if (!data) {
-            // Jika data tidak ada, jangan set error tapi beri tahu user
-            console.warn('Profile not found for user:', userId);
-            setError('Profil tidak ditemukan. Silakan hubungi admin.');
-            setProfile(null);
-          } else {
-            setError(null);
-            setProfile(data);
-          }
-          setLoading(false);
-        });
-    };
+  const fetchProfile = async (userId: string) => {
+    const { data, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
 
+    if (profileError) {
+      console.error('Error fetching profile:', profileError);
+      setError(`Gagal memuat profil pengguna: ${profileError.message}`);
+      setProfile(null);
+    } else if (!data) {
+      setError('Profil tidak ditemukan. Silakan hubungi admin.');
+      setProfile(null);
+    } else {
+      setError(null);
+      setProfile(data);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    // Initial session check
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -69,16 +67,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const newUser = session?.user ?? null;
+      
+      // Hanya set loading jika user benar-benar berubah (login baru)
+      // Jika hanya token refresh, jangan ganggu UI
+      if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && newUser)) {
+        setSession(session);
+        setUser(newUser);
         setLoading(true);
-        fetchProfile(session.user.id);
-      } else {
+        fetchProfile(newUser!.id);
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setUser(null);
         setProfile(null);
         setError(null);
         setLoading(false);
+      } else {
+        // Untuk event lain seperti TOKEN_REFRESHED, cukup update session tanpa loading
+        setSession(session);
+        setUser(newUser);
       }
     });
 
@@ -87,28 +95,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
-    setProfile(null);
-    setError(null);
   };
 
-  const value = {
-    session,
-    user,
-    profile,
-    loading,
-    error,
-    signOut,
-  };
+  const value = { session, user, profile, loading, error, signOut };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
