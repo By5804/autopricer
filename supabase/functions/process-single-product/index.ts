@@ -17,6 +17,36 @@ const getSoldCount = (p: any) => {
   return p.total_sold ?? p.item_sold_count ?? p.sold_count ?? p.sold ?? p.total_item_sold ?? 0;
 };
 
+// Menyaring kompetitor agar hanya bersaing dengan variasi produk yang sama
+const filterCompetitorsByVariation = (competitors: any[], myProductName: string) => {
+  const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ');
+  const myNorm = normalize(myProductName);
+  
+  // Ambil semua angka dari nama produk kita (misal: "400 Robux" -> ["400"])
+  const myNumbers = myProductName.match(/\d+/g) || [];
+  
+  return competitors.filter((p: any) => {
+    const pName = p.name || '';
+    const pNorm = normalize(pName);
+    
+    // Jika produk kita memiliki angka, nama kompetitor wajib memiliki angka yang sama persis
+    if (myNumbers.length > 0) {
+      const pNumbers = pName.match(/\d+/g) || [];
+      const hasAllNumbers = myNumbers.every(num => pNumbers.includes(num));
+      if (!hasAllNumbers) return false;
+    }
+    
+    // Pastikan kata kunci utama non-angka juga cocok (misal: "robux", "diamonds")
+    const myWords = myNorm.split(/\s+/).filter(w => w.length > 2 && isNaN(Number(w)));
+    if (myWords.length > 0) {
+      const hasKeyword = myWords.some(word => pNorm.includes(word));
+      if (!hasKeyword) return false;
+    }
+    
+    return true;
+  });
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -57,7 +87,10 @@ serve(async (req) => {
     if (!scrapeRes.ok) throw new Error(`Scrape API failed: ${scrapeRes.status}`)
     
     const scrapeData = await scrapeRes.json()
-    const competitorList = scrapeData?.data?.data || []
+    const rawCompetitorList = scrapeData?.data?.data || []
+
+    // Filter daftar kompetitor agar hanya berisi variasi produk yang sama
+    const competitorList = filterCompetitorsByVariation(rawCompetitorList, productName)
 
     let result: any = { 
       status: 'idle', 
@@ -68,7 +101,7 @@ serve(async (req) => {
       newPrice: null
     }
 
-    // 2. Cari produk saya di list
+    // 2. Cari produk saya di list yang sudah difilter
     const normalizedMyStore = store_name.trim().toLowerCase();
     let myProduct = competitorList.find((p: any) => p.seller?.shop_name?.trim().toLowerCase() === normalizedMyStore)
     
@@ -99,7 +132,7 @@ serve(async (req) => {
     const competitorsOnly = competitorList.filter((p: any) => p.seller?.shop_name?.trim().toLowerCase() !== normalizedMyStore)
 
     if (competitorsOnly.length === 0) {
-      // Benar-benar tidak ada penjual lain di pasar
+      // Benar-benar tidak ada penjual lain di pasar untuk variasi ini
       if (result.myPrice !== null && result.myPrice < maxPrice) {
         result.newPrice = maxPrice
         result.status = 'updated'
