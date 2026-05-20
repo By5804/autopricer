@@ -92,7 +92,7 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
     setLogs(prev => {
       const isDuplicate = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (isDuplicate) return prev;
-      return [newLog, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100);
+      return [newLog, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 200);
     });
   }, []);
 
@@ -113,7 +113,7 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
         const { data: productsData } = await supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
         if (productsData) setProducts(productsData.map(mapDbToProductStatus));
 
-        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
+        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200);
         if (logsData) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',

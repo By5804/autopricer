@@ -32,7 +32,7 @@ export const Products = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProductStatus; direction: 'ascending' | 'descending' } | null>(null);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
-  const [showOptimalLogs, setShowOptimalLogs] = useState(false);
+  const [showOptimalLogs, setShowOptimalLogs] = useState(true);
   const [openCategories, setOpenCategories] = useState<string[]>([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
 
