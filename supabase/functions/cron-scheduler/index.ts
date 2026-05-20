@@ -39,21 +39,27 @@ serve(async (req) => {
       return new Response(JSON.stringify({ message: "No products due." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    console.log(`[cron-scheduler] Processing ${productsToProcess.length} products.`);
+    console.log(`[cron-scheduler] Processing ${productsToProcess.length} products in parallel.`);
 
     const processedUserIds = new Set<string>();
-    const results = [];
-
-    for (const item of productsToProcess) {
+    
+    // Memproses semua produk secara paralel menggunakan Promise.all
+    const promises = productsToProcess.map(async (item: any) => {
       processedUserIds.add(item.user_id);
-      
-      const res = await supabaseAdmin.functions.invoke('process-single-product', {
-        body: { user_id: item.user_id, product_id: item.product_id },
-      });
-      results.push({ id: item.product_id, success: !res.error });
-    }
+      try {
+        const res = await supabaseAdmin.functions.invoke('process-single-product', {
+          body: { user_id: item.user_id, product_id: item.product_id },
+        });
+        return { id: item.product_id, success: !res.error };
+      } catch (err) {
+        console.error(`[cron-scheduler] Error processing product ${item.product_id}:`, err);
+        return { id: item.product_id, success: false };
+      }
+    });
 
-    // UPDATE: Perbarui waktu jalan terakhir secara global untuk tiap user yang diproses
+    const results = await Promise.all(promises);
+
+    // Perbarui waktu jalan terakhir secara global untuk tiap user yang diproses
     const now = new Date().toISOString();
     for (const userId of processedUserIds) {
       await supabaseAdmin
@@ -62,7 +68,7 @@ serve(async (req) => {
         .eq('user_id', userId);
     }
 
-    return new Response(JSON.stringify({ processed: results.length }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ processed: results.length, results }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     console.error("[cron-scheduler] Error:", error.message);
