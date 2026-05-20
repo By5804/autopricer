@@ -52,12 +52,17 @@ serve(async (req) => {
     const priceWarUndercut = Math.max(10, Number(warUndercut) || normalUndercut)
     const whitelistedStores = whitelist ? whitelist.split(',').map((n: string) => n.trim().toLowerCase()) : []
 
-    // 1. Ambil data pasar (Top 50)
-    const scrapeRes = await fetch(`https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&use_auto_delivery=true&is_enough_stock=1`)
+    // 1. Ambil data pasar (Top 50) - Menghapus use_auto_delivery=true agar mendeteksi semua tipe pengiriman (termasuk manual)
+    const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&is_enough_stock=1`
+    console.log("[process-single-product] Scraping market data from URL:", scrapeUrl)
+    
+    const scrapeRes = await fetch(scrapeUrl)
     if (!scrapeRes.ok) throw new Error(`Scrape API failed: ${scrapeRes.status}`)
     
     const scrapeData = await scrapeRes.json()
     const competitorList = scrapeData?.data?.data || []
+    
+    console.log(`[process-single-product] Found ${competitorList.length} total products in market for ${productName}`)
 
     let result: any = { 
       status: 'idle', 
@@ -82,6 +87,7 @@ serve(async (req) => {
           result.myPrice = directInfo.price
           result.myStock = directInfo.stock
           result.mySoldCount = getSoldCount(directInfo)
+          console.log(`[process-single-product] Direct fetch fallback success for ${productName}: Price=${result.myPrice}, Stock=${result.myStock}`)
         }
       }
     } catch (e) {
@@ -93,10 +99,12 @@ serve(async (req) => {
       result.myPrice = myProduct.price
       result.myStock = myProduct.stock
       result.mySoldCount = getSoldCount(myProduct)
+      console.log(`[process-single-product] Found my product in market list for ${productName}: Price=${result.myPrice}`)
     }
 
     // Filter toko kita sendiri agar tidak bersaing dengan diri sendiri
     const competitorsOnly = competitorList.filter((p: any) => p.seller?.shop_name?.trim().toLowerCase() !== normalizedMyStore)
+    console.log(`[process-single-product] Found ${competitorsOnly.length} competitors (excluding own store) for ${productName}`)
 
     if (competitorsOnly.length === 0) {
       // Benar-benar tidak ada penjual lain di pasar
@@ -104,9 +112,11 @@ serve(async (req) => {
         result.newPrice = maxPrice
         result.status = 'updated'
         result.message = 'logic.onlySellerSetMax'
+        console.log(`[process-single-product] No competitors found. Setting price to maxPrice: ${maxPrice}`)
       } else {
         result.status = 'success'
         result.message = 'logic.onlySellerAtMax'
+        console.log(`[process-single-product] No competitors found. Already at maxPrice or price is null.`)
       }
     } else {
       const p1 = competitorsOnly[0]
@@ -129,9 +139,11 @@ serve(async (req) => {
             newPrice: result.newPrice.toLocaleString('id-ID'),
             competitorStoreName: result.competitorStoreName
           }
+          console.log(`[process-single-product] We are cheapest. Maximizing profit against ${result.competitorStoreName}. New Price: ${result.newPrice}`)
         } else {
           result.status = 'success'
           result.message = 'logic.cheapestOptimal'
+          console.log(`[process-single-product] We are cheapest and price is optimal.`)
         }
       } else {
         // Kita bukan termurah, cari target kompetitor di atas kita untuk di-undercut
@@ -158,16 +170,19 @@ serve(async (req) => {
               newPrice: result.newPrice.toLocaleString('id-ID'),
               minPrice: minPrice.toLocaleString('id-ID')
             }
+            console.log(`[process-single-product] Price war detected against rival: ${target.seller?.shop_name}. Undercutting to: ${result.newPrice}`)
           } else {
             result.message = 'logic.undercutting'
             result.messageParams = { 
               competitorStoreName: target.seller?.shop_name || 'Competitor', 
               rank: competitorList.indexOf(target) + 1 
             }
+            console.log(`[process-single-product] Undercutting competitor: ${target.seller?.shop_name}. New Price: ${result.newPrice}`)
           }
         } else {
           result.status = 'success'
           result.message = 'logic.holdPrice'
+          console.log(`[process-single-product] No valid target found (all whitelisted). Holding price.`)
         }
       }
     }
@@ -182,6 +197,7 @@ serve(async (req) => {
           minPrice: minPrice.toLocaleString('id-ID'),
           rivalStoreName: result.competitorStoreName || 'Market'
         };
+        console.log(`[process-single-product] Proposed price ${result.newPrice} is below minPrice ${minPrice}. Capping at minPrice.`)
       }
       
       const nonce = Math.floor(Date.now() / 1000).toString()
@@ -199,6 +215,9 @@ serve(async (req) => {
         result.status = 'error'
         result.message = 'logic.updateFail'
         result.messageParams = { errorMessage: upData.message || 'API Error' }
+        console.error(`[process-single-product] Price update API failed:`, upData)
+      } else {
+        console.log(`[process-single-product] Price update API success for ${productName} to ${result.newPrice}`)
       }
     }
 
