@@ -17,7 +17,7 @@ export interface Product {
 }
 
 export interface ProductStatus extends Product {
-  status: 'idle' | 'loading' | 'success' | 'error' | 'updated';
+  status: 'idle' | 'loading' | 'success' | 'error' | 'updated' | 'SOLD';
   message: string;
   messageParams?: Record<string, string | number | undefined>;
   myPrice?: number;

@@ -108,7 +108,7 @@ serve(async (req) => {
 
     // Pengecekan jika stok produk kita sendiri kosong (0, null, atau undefined)
     if (result.myStock === 0 || result.myStock === null || result.myStock === undefined) {
-      result.status = 'success'
+      result.status = 'SOLD'
       result.message = 'logic.outOfStock'
       console.log(`[process-single-product] Product ${productName} is out of stock (stock is ${result.myStock}). Skipping price update.`)
     } else if (competitorsOnly.length === 0) {

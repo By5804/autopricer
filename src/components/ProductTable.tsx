@@ -23,6 +23,7 @@ export function ProductTable({ products, onEdit, onDelete, onSort, sortConfig, o
       case 'success':
       case 'updated':
         return 'success';
+      case 'SOLD':
       case 'error':
         return 'destructive';
       case 'loading':
