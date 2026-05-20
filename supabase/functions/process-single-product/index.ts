@@ -54,17 +54,29 @@ serve(async (req) => {
     const priceWarUndercut = Math.max(10, Number(warUndercut) || normalUndercut)
     const whitelistedStores = whitelist ? whitelist.split(',').map((n: string) => n.trim().toLowerCase()) : []
 
-    // 1. Ambil data pasar (Top 50) - Menghapus use_auto_delivery=true agar mendeteksi semua tipe pengiriman (termasuk manual)
-    const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&is_enough_stock=1`
+    // 1. Ambil data pasar (Top 50) - Menggunakan use_auto_delivery=1 agar hanya mendeteksi pengiriman instan
+    const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&is_enough_stock=1&use_auto_delivery=1`
     console.log("[process-single-product] Scraping market data from URL:", scrapeUrl)
     
     const scrapeRes = await fetch(scrapeUrl)
     if (!scrapeRes.ok) throw new Error(`Scrape API failed: ${scrapeRes.status}`)
     
     const scrapeData = await scrapeRes.json()
-    const competitorList = scrapeData?.data?.data || []
+    const rawCompetitorList = scrapeData?.data?.data || []
     
-    console.log(`[process-single-product] Found ${competitorList.length} total products in market for ${productName}`)
+    // Filter kembali di level kode untuk memastikan hanya produk pengiriman instan yang diproses
+    const competitorList = rawCompetitorList.filter((p: any) => {
+      return p.is_auto_delivery === true || 
+             p.is_auto_delivery === 1 || 
+             p.is_instant_delivery === true || 
+             p.is_instant_delivery === 1 ||
+             p.is_instant === true ||
+             p.is_instant === 1 ||
+             p.delivery_type === 'instant' ||
+             p.delivery_type === 1;
+    });
+    
+    console.log(`[process-single-product] Found ${competitorList.length} instant delivery products in market for ${productName}`)
 
     let result: any = { 
       status: 'idle', 
