@@ -95,8 +95,11 @@ serve(async (req) => {
       result.mySoldCount = getSoldCount(myProduct)
     }
 
-    if (competitorList.length === 0) {
-      // Benar-benar tidak ada penjual sama sekali di pasar (termasuk saya tidak terdeteksi)
+    // Filter toko kita sendiri agar tidak bersaing dengan diri sendiri
+    const competitorsOnly = competitorList.filter((p: any) => p.seller?.shop_name?.trim().toLowerCase() !== normalizedMyStore)
+
+    if (competitorsOnly.length === 0) {
+      // Benar-benar tidak ada penjual lain di pasar
       if (result.myPrice !== null && result.myPrice < maxPrice) {
         result.newPrice = maxPrice
         result.status = 'updated'
@@ -106,90 +109,65 @@ serve(async (req) => {
         result.message = 'logic.onlySellerAtMax'
       }
     } else {
-      const myIndex = myProduct ? competitorList.indexOf(myProduct) : -1
+      const p1 = competitorsOnly[0]
+      
+      // Tentukan apakah kita termurah di pasar
+      const isCheapest = result.myPrice !== null && result.myPrice < p1.price
 
-      if (myIndex === -1) {
-        // Saya tidak ada di 50 termurah
-        const p1 = competitorList[0]
+      if (isCheapest) {
+        // Kita termurah #1, maksimalkan profit terhadap kompetitor terdekat (p1)
         result.competitorPrice = p1.price
         result.competitorStoreName = p1.seller?.shop_name || 'Unknown'
         result.competitorStock = p1.stock
         result.competitorSoldCount = getSoldCount(p1)
-        
-        result.status = 'error'
-        result.message = 'logic.outOfStock'
-        result.messageParams = { competitorStoreName: result.competitorStoreName }
+
+        if (p1.price - result.myPrice > normalUndercut + 20) {
+          result.newPrice = Math.min(roundPrice(p1.price - normalUndercut), maxPrice)
+          result.status = 'updated'
+          result.message = 'logic.maximizeProfit'
+          result.messageParams = { 
+            newPrice: result.newPrice.toLocaleString('id-ID'),
+            competitorStoreName: result.competitorStoreName
+          }
+        } else {
+          result.status = 'success'
+          result.message = 'logic.cheapestOptimal'
+        }
       } else {
-        if (myIndex === 0) {
-          // Saya termurah #1
-          const p2 = competitorList[1]
-          if (!p2) {
-            // Hanya saya satu-satunya penjual di Top 50
-            if (result.myPrice !== null && result.myPrice < maxPrice) {
-              result.newPrice = maxPrice
-              result.status = 'updated'
-              result.message = 'logic.onlySellerSetMax'
-            } else {
-              result.status = 'success'
-              result.message = 'logic.onlySellerAtMax'
+        // Kita bukan termurah, cari target kompetitor di atas kita untuk di-undercut
+        const target = competitorsOnly.find((p: any) => !whitelistedStores.includes(p.seller?.shop_name?.trim().toLowerCase()))
+        
+        const displayTarget = target || p1
+        result.competitorPrice = displayTarget.price
+        result.competitorStoreName = displayTarget.seller?.shop_name || 'Unknown'
+        result.competitorStock = displayTarget.stock
+        result.competitorSoldCount = getSoldCount(displayTarget)
+
+        if (target) {
+          const targetName = target.seller?.shop_name?.trim().toLowerCase() || ''
+          const isRival = rivalStore && targetName === rivalStore.trim().toLowerCase()
+          const currentUndercut = isRival ? priceWarUndercut : normalUndercut
+          
+          result.newPrice = roundPrice(target.price - currentUndercut)
+          result.status = 'updated'
+          
+          if (isRival) {
+            result.message = 'logic.priceWarDetected'
+            result.messageParams = { 
+              rivalStoreName: target.seller?.shop_name || 'Rival', 
+              newPrice: result.newPrice.toLocaleString('id-ID'),
+              minPrice: minPrice.toLocaleString('id-ID')
             }
           } else {
-            result.competitorPrice = p2.price
-            result.competitorStoreName = p2.seller?.shop_name || 'Unknown'
-            result.competitorStock = p2.stock
-            result.competitorSoldCount = getSoldCount(p2)
-
-            if (p2.price - myProduct.price > normalUndercut + 20) {
-              result.newPrice = Math.min(roundPrice(p2.price - normalUndercut), maxPrice)
-              result.status = 'updated'
-              result.message = 'logic.maximizeProfit'
-              result.messageParams = { 
-                newPrice: result.newPrice.toLocaleString('id-ID'),
-                competitorStoreName: result.competitorStoreName
-              }
-            } else {
-              result.status = 'success'
-              result.message = 'logic.cheapestOptimal'
+            result.message = 'logic.undercutting'
+            result.messageParams = { 
+              competitorStoreName: target.seller?.shop_name || 'Competitor', 
+              rank: competitorList.indexOf(target) + 1 
             }
           }
         } else {
-          // Saya bukan termurah, cari target di atas saya
-          const target = competitorList.find((p: any, i: number) => i < myIndex && !whitelistedStores.includes(p.seller?.shop_name?.trim().toLowerCase()))
-          
-          const p1 = competitorList[0]
-          const displayTarget = target || p1
-          
-          result.competitorPrice = displayTarget.price
-          result.competitorStoreName = displayTarget.seller?.shop_name || 'Unknown'
-          result.competitorStock = displayTarget.stock
-          result.competitorSoldCount = getSoldCount(displayTarget)
-
-          if (target) {
-            const targetName = target.seller?.shop_name?.trim().toLowerCase() || ''
-            const isRival = rivalStore && targetName === rivalStore.trim().toLowerCase()
-            const currentUndercut = isRival ? priceWarUndercut : normalUndercut
-            
-            result.newPrice = roundPrice(target.price - currentUndercut)
-            result.status = 'updated'
-            
-            if (isRival) {
-              result.message = 'logic.priceWarDetected'
-              result.messageParams = { 
-                rivalStoreName: target.seller?.shop_name || 'Rival', 
-                newPrice: result.newPrice.toLocaleString('id-ID'),
-                minPrice: minPrice.toLocaleString('id-ID')
-              }
-            } else {
-              result.message = 'logic.undercutting'
-              result.messageParams = { 
-                competitorStoreName: target.seller?.shop_name || 'Competitor', 
-                rank: competitorList.indexOf(target) + 1 
-              }
-            }
-          } else {
-            result.status = 'success'
-            result.message = 'logic.holdPrice'
-          }
+          result.status = 'success'
+          result.message = 'logic.holdPrice'
         }
       }
     }
