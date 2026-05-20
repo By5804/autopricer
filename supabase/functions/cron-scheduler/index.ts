@@ -62,10 +62,30 @@ serve(async (req) => {
     // Perbarui waktu jalan terakhir secara global untuk tiap user yang diproses
     const now = new Date().toISOString();
     for (const userId of processedUserIds) {
-      await supabaseAdmin
+      const { data: userConfig } = await supabaseAdmin
         .from('user_configurations')
-        .update({ cron_last_run_at: now })
-        .eq('user_id', userId);
+        .select('cron_interval_minutes, cron_last_run_at')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (userConfig) {
+        const lastRun = userConfig.cron_last_run_at ? new Date(userConfig.cron_last_run_at) : null;
+        const globalIntervalMs = (userConfig.cron_interval_minutes || 10) * 60 * 1000;
+        
+        // HANYA update cron_last_run_at global jika:
+        // 1. Belum pernah jalan (lastRun null)
+        // 2. Atau waktu sekarang sudah melewati interval global (dengan toleransi 30 detik)
+        // 3. Atau dipicu secara paksa (force run)
+        if (force || !lastRun || (Date.now() - lastRun.getTime() >= globalIntervalMs - 30000)) {
+          await supabaseAdmin
+            .from('user_configurations')
+            .update({ cron_last_run_at: now })
+            .eq('user_id', userId);
+          console.log(`[cron-scheduler] Global cron cycle completed. Updated global cron_last_run_at.`);
+        } else {
+          console.log(`[cron-scheduler] Custom interval products processed. Global cron_last_run_at preserved.`);
+        }
+      }
     }
 
     return new Response(JSON.stringify({ processed: results.length, results }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
