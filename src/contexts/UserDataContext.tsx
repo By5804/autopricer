@@ -221,7 +221,9 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
     if (!user) return false;
     setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'loading', message: 'logic.checking' } : p));
     try {
-      const { data, error } = await supabase.functions.invoke('process-single-product', { body: { user_id: user.id, product_id: productId } });
+      const { data, error } = await supabase.functions.invoke('process-single-product', { 
+        body: { user_id: user.id, product_id: productId, is_manual: true } 
+      });
       if (error) throw error;
       return true;
     } catch (error) {

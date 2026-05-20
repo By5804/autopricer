@@ -30,11 +30,13 @@ serve(async (req) => {
   let userId = ''
   let productId = 0
   let productName = 'Unknown Product'
+  let isManual = false
 
   try {
     const body = await req.json()
     userId = body.user_id
     productId = body.product_id
+    isManual = body.is_manual === true
 
     if (!userId || !productId) throw new Error("Missing user_id or product_id")
 
@@ -231,7 +233,7 @@ serve(async (req) => {
       ? result.newPrice 
       : (result.myPrice !== null ? result.myPrice : product.proposed_price);
 
-    await supabaseAdmin.from('user_products').update({
+    const updateFields: any = {
       last_status: result.status,
       last_message: result.message,
       last_message_params: result.messageParams || {},
@@ -243,9 +245,15 @@ serve(async (req) => {
       last_competitor_store_name: result.competitorStoreName,
       last_competitor_stock: result.competitorStock,
       last_competitor_sold_count: result.competitorSoldCount,
-      cron_last_run_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
-    }).eq('id', product.id)
+    };
+
+    // Hanya perbarui cron_last_run_at jika ini adalah proses otomatis (bukan manual)
+    if (!isManual) {
+      updateFields.cron_last_run_at = new Date().toISOString();
+    }
+
+    await supabaseAdmin.from('user_products').update(updateFields).eq('id', product.id)
 
     await supabaseAdmin.from('product_logs').insert({
       user_id: userId,
