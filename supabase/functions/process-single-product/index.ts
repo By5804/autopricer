@@ -106,11 +106,11 @@ serve(async (req) => {
     const competitorsOnly = competitorList.filter((p: any) => p.seller?.shop_name?.trim().toLowerCase() !== normalizedMyStore)
     console.log(`[process-single-product] Found ${competitorsOnly.length} competitors (excluding own store) for ${productName}`)
 
-    // Pengecekan jika stok produk kita sendiri kosong (0)
-    if (result.myStock === 0) {
+    // Pengecekan jika stok produk kita sendiri kosong (0, null, atau undefined)
+    if (result.myStock === 0 || result.myStock === null || result.myStock === undefined) {
       result.status = 'success'
       result.message = 'logic.outOfStock'
-      console.log(`[process-single-product] Product ${productName} is out of stock (stock is 0). Skipping price update.`)
+      console.log(`[process-single-product] Product ${productName} is out of stock (stock is ${result.myStock}). Skipping price update.`)
     } else if (competitorsOnly.length === 0) {
       // Benar-benar tidak ada penjual lain di pasar
       if (result.myPrice !== null && result.myPrice < maxPrice) {
