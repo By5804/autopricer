@@ -105,7 +105,7 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       return;
     }
 
-    const loadInitialData = async () => {
+    const fetchLatestData = async () => {
       try {
         const { data: configData } = await supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle();
         if (configData) setConfig(configData);
@@ -123,37 +123,45 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
           })));
         }
       } catch (error) {
-        console.error('Error loading initial data:', error);
-      } finally {
-        setLoading(false);
+        console.error('Error fetching latest data:', error);
       }
     };
 
-    loadInitialData();
+    // Load initial data
+    setLoading(true);
+    fetchLatestData().finally(() => setLoading(false));
 
+    // Realtime subscription - Tanpa filter server-side agar trigger instan 100% handal
     const channel = supabase
-      .channel(`db-sync-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs', filter: `user_id=eq.${user.id}` }, (payload) => {
-        addLog(payload.new.log_data, payload.new.created_at);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_products', filter: `user_id=eq.${user.id}` }, (payload) => {
-        if (payload.eventType === 'DELETE') {
-          setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
-        } else {
-          const updatedProduct = mapDbToProductStatus(payload.new);
-          setProducts(prev => {
-            const index = prev.findIndex(p => String(p.product_id) === String(updatedProduct.product_id));
-            if (index !== -1) {
-              const newProducts = [...prev];
-              newProducts[index] = updatedProduct;
-              return newProducts;
-            }
-            return [updatedProduct, ...prev];
-          });
+      .channel(`db-sync-instant-${user.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs' }, (payload) => {
+        if (payload.new && payload.new.user_id === user.id) {
+          addLog(payload.new.log_data, payload.new.created_at);
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configurations', filter: `user_id=eq.${user.id}` }, (payload) => {
-        setConfig(payload.new as UserConfig);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_products' }, (payload) => {
+        const targetData = payload.eventType === 'DELETE' ? payload.old : payload.new;
+        if (targetData && targetData.user_id === user.id) {
+          if (payload.eventType === 'DELETE') {
+            setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
+          } else {
+            const updatedProduct = mapDbToProductStatus(payload.new);
+            setProducts(prev => {
+              const index = prev.findIndex(p => String(p.product_id) === String(updatedProduct.product_id));
+              if (index !== -1) {
+                const newProducts = [...prev];
+                newProducts[index] = updatedProduct;
+                return newProducts;
+              }
+              return [updatedProduct, ...prev];
+            });
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configurations' }, (payload) => {
+        if (payload.new && payload.new.user_id === user.id) {
+          setConfig(payload.new as UserConfig);
+        }
       })
       .subscribe();
 
