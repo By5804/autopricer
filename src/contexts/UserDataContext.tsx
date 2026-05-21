@@ -233,6 +233,29 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
         body: { user_id: user.id, product_id: productId, is_manual: true } 
       });
       if (error) throw error;
+      
+      // Langsung update state produk lokal dari respon API agar loading spinner langsung berhenti
+      if (data) {
+        setProducts(prev => prev.map(p => {
+          if (String(p.product_id) === String(productId)) {
+            return {
+              ...p,
+              status: data.status || 'success',
+              message: data.message || 'logic.waiting',
+              messageParams: data.messageParams || {},
+              myPrice: data.myPrice !== null ? data.myPrice : p.myPrice,
+              myStock: data.myStock !== null ? data.myStock : p.myStock,
+              mySoldCount: data.mySoldCount !== null ? data.mySoldCount : p.mySoldCount,
+              competitorPrice: data.competitorPrice,
+              competitorStoreName: data.competitorStoreName,
+              competitorStock: data.competitorStock,
+              competitorSoldCount: data.competitorSoldCount,
+              newPrice: data.newPrice || p.newPrice,
+            };
+          }
+          return p;
+        }));
+      }
       return true;
     } catch (error) {
       setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'error', message: 'logic.processFailed' } : p));
