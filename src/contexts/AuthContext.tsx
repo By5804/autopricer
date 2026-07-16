@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  syncingTime: boolean;
   error: string | null;
   signOut: () => Promise<void>;
 }
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
+  syncingTime: false,
   error: null,
   signOut: async () => {},
 });
@@ -32,10 +34,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncingTime, setSyncingTime] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProfile = async (userId: string, retries = 3, delay = 1500) => {
+  const fetchProfile = async (userId: string, retries = 8, delay = 2000) => {
     setError(null);
+    setSyncingTime(false);
     
     for (let i = 0; i < retries; i++) {
       const { data, error: profileError } = await supabase
@@ -45,10 +49,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         .maybeSingle();
 
       if (profileError) {
-        console.error(`Error fetching profile (attempt ${i + 1}/${retries}):`, profileError);
+        console.warn(`[Profiles Auth Sync] Attempt ${i + 1}/${retries} failed:`, profileError);
         
-        // Jika error disebabkan oleh perbedaan waktu JWT, tunggu dan coba lagi
+        // Jika terdeteksi masalah perbedaan waktu server Supabase
         if (profileError.message?.includes('JWT issued at future') && i < retries - 1) {
+          setSyncingTime(true);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -64,6 +69,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       break;
     }
+    setSyncingTime(false);
     setLoading(false);
   };
 
@@ -82,8 +88,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const newUser = session?.user ?? null;
       
-      // Hanya set loading jika user benar-benar berubah (login baru)
-      // Jika hanya token refresh, jangan ganggu UI
       if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && newUser)) {
         setSession(session);
         setUser(newUser);
@@ -96,7 +100,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setError(null);
         setLoading(false);
       } else {
-        // Untuk event lain seperti TOKEN_REFRESHED, cukup update session tanpa loading
         setSession(session);
         setUser(newUser);
       }
@@ -109,7 +112,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await supabase.auth.signOut();
   };
 
-  const value = { session, user, profile, loading, error, signOut };
+  const value = { session, user, profile, loading, syncingTime, error, signOut };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

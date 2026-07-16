@@ -5,15 +5,27 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
 const Login = () => {
-  const { user, profile, loading, error } = useAuth();
+  const { user, profile, loading, syncingTime, error } = useAuth();
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        {syncingTime ? (
+          <div className="text-center space-y-1">
+            <p className="font-semibold text-sm text-primary flex items-center justify-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Menyelaraskan Waktu Server...
+            </p>
+            <p className="text-xs text-muted-foreground max-w-xs px-4">
+              Server Supabase sedang menyesuaikan waktu token keamanan Anda. Mohon tunggu beberapa detik.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Memuat data pengguna...</p>
+        )}
       </div>
     );
   }

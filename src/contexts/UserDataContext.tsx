@@ -105,11 +105,14 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       return;
     }
 
-    const fetchWithRetry = async (queryFn: () => Promise<any>, retries = 3, delay = 1500) => {
+    const fetchWithRetry = async (queryFn: () => Promise<any>, retries = 8, delay = 2000) => {
       for (let i = 0; i < retries; i++) {
         const { data, error } = await queryFn();
         if (!error) return data;
+        
+        // Deteksi perbedaan waktu server Supabase
         if (error.message?.includes('JWT issued at future') && i < retries - 1) {
+          console.warn(`[UserData Sync] Clock skew detected (attempt ${i + 1}/${retries}). Waiting ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -148,11 +151,11 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       }
     };
 
-    // Load initial data
+    // Load data
     setLoading(true);
     fetchLatestData().finally(() => setLoading(false));
 
-    // Realtime subscription - Tanpa filter server-side agar trigger instan 100% handal
+    // Realtime subscription
     const channel = supabase
       .channel(`db-sync-instant-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'product_logs' }, (payload) => {
@@ -255,7 +258,6 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       });
       if (error) throw error;
       
-      // Langsung update state produk lokal dari respon API agar loading spinner langsung berhenti
       if (data) {
         setProducts(prev => prev.map(p => {
           if (String(p.product_id) === String(productId)) {
