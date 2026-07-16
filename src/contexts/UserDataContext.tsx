@@ -107,6 +107,41 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
     });
   }, []);
 
+  const fetchLatestDataSilently = useCallback(async () => {
+    if (!user) return;
+    try {
+      // Ambil config baru
+      const { data: configData } = await supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle();
+      if (configData) {
+        setConfig(configData);
+        localStorage.setItem('itemku-pricer-config', JSON.stringify(configData));
+      }
+
+      // Ambil produk baru
+      const { data: productsData } = await supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (productsData) {
+        const mappedProducts = productsData.map(mapDbToProductStatus);
+        setProducts(mappedProducts);
+        localStorage.setItem('itemku-pricer-products', JSON.stringify(mappedProducts));
+      }
+
+      // Ambil log baru
+      const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200);
+      if (logsData) {
+        const mappedLogs = logsData.map(l => ({
+          message: l.log_data?.message || 'Activity log entry',
+          messageParams: parseParams(l.log_data?.messageParams),
+          productName: l.log_data?.productName || l.log_data?.name || 'Product',
+          createdAt: l.created_at
+        }));
+        setLogs(mappedLogs);
+        localStorage.setItem('itemku-pricer-logs', JSON.stringify(mappedLogs));
+      }
+    } catch (e) {
+      console.warn('[UserData Poll] Failed background poll:', e);
+    }
+  }, [user, mapDbToProductStatus]);
+
   useEffect(() => {
     if (!user) {
       setLoading(false);
@@ -116,63 +151,14 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       return;
     }
 
-    const fetchWithRetry = async (queryFn: () => Promise<any>, retries = 10) => {
-      for (let i = 0; i < retries; i++) {
-        const { data, error } = await queryFn();
-        if (!error) return data;
-        
-        if (error.message?.includes('JWT issued at future') && i < retries - 1) {
-          const backoffDelay = (i + 1) * 1000;
-          console.warn(`[UserData Sync] Clock skew detected (attempt ${i + 1}/${retries}). Waiting ${backoffDelay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, backoffDelay));
-          continue;
-        }
-        throw error;
-      }
-    };
+    // Ambil data pertama kali
+    setLoading(true);
+    fetchLatestDataSilently().finally(() => setLoading(false));
 
-    const fetchLatestData = async () => {
-      try {
-        // Fetch config
-        const configData = await fetchWithRetry(() => 
-          supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle()
-        );
-        if (configData) {
-          setConfig(configData);
-          localStorage.setItem('itemku-pricer-config', JSON.stringify(configData));
-        }
-
-        // Fetch products
-        const productsData = await fetchWithRetry(() => 
-          supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
-        );
-        if (productsData) {
-          const mappedProducts = productsData.map(mapDbToProductStatus);
-          setProducts(mappedProducts);
-          localStorage.setItem('itemku-pricer-products', JSON.stringify(mappedProducts));
-        }
-
-        // Fetch logs
-        const logsData = await fetchWithRetry(() => 
-          supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200)
-        );
-        if (logsData) {
-          const mappedLogs = logsData.map(l => ({
-            message: l.log_data?.message || 'Activity log entry',
-            messageParams: parseParams(l.log_data?.messageParams),
-            productName: l.log_data?.productName || l.log_data?.name || 'Product',
-            createdAt: l.created_at
-          }));
-          setLogs(mappedLogs);
-          localStorage.setItem('itemku-pricer-logs', JSON.stringify(mappedLogs));
-        }
-      } catch (error) {
-        console.error('Error fetching latest data:', error);
-      }
-    };
-
-    // Sinkronisasi data terbaru di latar belakang secara senyap
-    fetchLatestData().finally(() => setLoading(false));
+    // Polling latar belakang senyap setiap 8 detik ( fallback jika Realtime mati )
+    const pollInterval = setInterval(() => {
+      fetchLatestDataSilently();
+    }, 8000);
 
     // Realtime subscription
     const channel = supabase
@@ -216,14 +202,18 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       .subscribe();
 
     return () => {
+      clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
-  }, [user, addLog, mapDbToProductStatus]);
+  }, [user, addLog, mapDbToProductStatus, fetchLatestDataSilently]);
 
   const saveConfig = async (newConfig: Partial<UserConfig>) => {
     if (!user) return false;
     try {
       const { error } = await supabase.from('user_configurations').upsert({ user_id: user.id, ...newConfig, updated_at: new Date().toISOString() });
+      if (!error) {
+        fetchLatestDataSilently();
+      }
       return !error;
     } catch (e) { return false; }
   };
@@ -253,6 +243,9 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       if (product.id) productData.id = product.id;
       else if (existingProduct) productData.id = existingProduct.id;
       const { error } = await supabase.from('user_products').upsert(productData);
+      if (!error) {
+        fetchLatestDataSilently();
+      }
       return !error;
     } catch (e) { return false; }
   };
@@ -261,6 +254,9 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
     if (!user) return false;
     try {
       const { error } = await supabase.from('user_products').delete().eq('user_id', user.id).eq('product_id', productId);
+      if (!error) {
+        fetchLatestDataSilently();
+      }
       return !error;
     } catch (e) { return false; }
   };
@@ -271,13 +267,18 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       for (const update of updates) {
         await supabase.from('user_products').update({ is_active: update.isActive, updated_at: new Date().toISOString() }).eq('user_id', user.id).eq('product_id', update.productId);
       }
+      fetchLatestDataSilently();
       return true;
     } catch (e) { return false; }
   };
 
   const processSingleProduct = async (productId: number) => {
     if (!user) return false;
+    const targetProduct = products.find(p => String(p.product_id) === String(productId));
+    const productName = targetProduct?.name || 'Product';
+    
     setProducts(prev => prev.map(p => String(p.product_id) === String(productId) ? { ...p, status: 'loading', message: 'logic.checking' } : p));
+    
     try {
       const { data, error } = await supabase.functions.invoke('process-single-product', { 
         body: { user_id: user.id, product_id: productId, is_manual: true } 
@@ -285,6 +286,7 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       if (error) throw error;
       
       if (data) {
+        // 1. Perbarui state produk
         setProducts(prev => {
           const nextProducts = prev.map(p => {
             if (String(p.product_id) === String(productId)) {
@@ -308,6 +310,14 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
           localStorage.setItem('itemku-pricer-products', JSON.stringify(nextProducts));
           return nextProducts;
         });
+
+        // 2. Buat log aktivitas secara lokal INSTAN saat proses selesai
+        const localLogData = {
+          message: data.message || 'logic.waiting',
+          messageParams: data.messageParams || {},
+          productName: productName
+        };
+        addLog(localLogData, new Date().toISOString());
       }
       return true;
     } catch (error) {
