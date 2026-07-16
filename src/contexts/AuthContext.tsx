@@ -34,23 +34,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+  const fetchProfile = async (userId: string, retries = 3, delay = 1500) => {
+    setError(null);
+    
+    for (let i = 0; i < retries; i++) {
+      const { data, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
 
-    if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      setError(`Gagal memuat profil pengguna: ${profileError.message}`);
-      setProfile(null);
-    } else if (!data) {
-      setError('Profil tidak ditemukan. Silakan hubungi admin.');
-      setProfile(null);
-    } else {
-      setError(null);
-      setProfile(data);
+      if (profileError) {
+        console.error(`Error fetching profile (attempt ${i + 1}/${retries}):`, profileError);
+        
+        // Jika error disebabkan oleh perbedaan waktu JWT, tunggu dan coba lagi
+        if (profileError.message?.includes('JWT issued at future') && i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        setError(`Gagal memuat profil pengguna: ${profileError.message}`);
+        setProfile(null);
+      } else if (!data) {
+        setError('Profil tidak ditemukan. Silakan hubungi admin.');
+        setProfile(null);
+      } else {
+        setError(null);
+        setProfile(data);
+      }
+      break;
     }
     setLoading(false);
   };

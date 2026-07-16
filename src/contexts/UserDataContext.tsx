@@ -105,15 +105,36 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       return;
     }
 
+    const fetchWithRetry = async (queryFn: () => Promise<any>, retries = 3, delay = 1500) => {
+      for (let i = 0; i < retries; i++) {
+        const { data, error } = await queryFn();
+        if (!error) return data;
+        if (error.message?.includes('JWT issued at future') && i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw error;
+      }
+    };
+
     const fetchLatestData = async () => {
       try {
-        const { data: configData } = await supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle();
+        // Fetch config
+        const configData = await fetchWithRetry(() => 
+          supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle()
+        );
         if (configData) setConfig(configData);
 
-        const { data: productsData } = await supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+        // Fetch products
+        const productsData = await fetchWithRetry(() => 
+          supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+        );
         if (productsData) setProducts(productsData.map(mapDbToProductStatus));
 
-        const { data: logsData } = await supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200);
+        // Fetch logs
+        const logsData = await fetchWithRetry(() => 
+          supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200)
+        );
         if (logsData) {
           setLogs(logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
