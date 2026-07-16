@@ -35,14 +35,23 @@ interface UserDataContextType {
   processSingleProduct: (productId: number) => Promise<boolean>;
 }
 
+const getCachedData = (key: string) => {
+  try {
+    const cached = localStorage.getItem(key);
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+};
+
 const UserDataContext = createContext<UserDataContextType | undefined>(undefined);
 
 export const UserDataProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
-  const [config, setConfig] = useState<UserConfig | null>(null);
-  const [products, setProducts] = useState<ProductStatus[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<UserConfig | null>(() => getCachedData('itemku-pricer-config'));
+  const [products, setProducts] = useState<ProductStatus[]>(() => getCachedData('itemku-pricer-products') || []);
+  const [logs, setLogs] = useState<LogEntry[]>(() => getCachedData('itemku-pricer-logs') || []);
+  const [loading, setLoading] = useState(() => !getCachedData('itemku-pricer-config'));
 
   const parseParams = (params: any) => {
     if (!params) return {};
@@ -92,7 +101,9 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
     setLogs(prev => {
       const isDuplicate = prev.some(l => l.createdAt === createdAt && l.productName === newLog.productName);
       if (isDuplicate) return prev;
-      return [newLog, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 200);
+      const updatedLogs = [newLog, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 200);
+      localStorage.setItem('itemku-pricer-logs', JSON.stringify(updatedLogs));
+      return updatedLogs;
     });
   }, []);
 
@@ -105,15 +116,15 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       return;
     }
 
-    const fetchWithRetry = async (queryFn: () => Promise<any>, retries = 8, delay = 2000) => {
+    const fetchWithRetry = async (queryFn: () => Promise<any>, retries = 10) => {
       for (let i = 0; i < retries; i++) {
         const { data, error } = await queryFn();
         if (!error) return data;
         
-        // Deteksi perbedaan waktu server Supabase
         if (error.message?.includes('JWT issued at future') && i < retries - 1) {
-          console.warn(`[UserData Sync] Clock skew detected (attempt ${i + 1}/${retries}). Waiting ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          const backoffDelay = (i + 1) * 1000;
+          console.warn(`[UserData Sync] Clock skew detected (attempt ${i + 1}/${retries}). Waiting ${backoffDelay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
           continue;
         }
         throw error;
@@ -126,33 +137,41 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
         const configData = await fetchWithRetry(() => 
           supabase.from('user_configurations').select('*').eq('user_id', user.id).maybeSingle()
         );
-        if (configData) setConfig(configData);
+        if (configData) {
+          setConfig(configData);
+          localStorage.setItem('itemku-pricer-config', JSON.stringify(configData));
+        }
 
         // Fetch products
         const productsData = await fetchWithRetry(() => 
           supabase.from('user_products').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
         );
-        if (productsData) setProducts(productsData.map(mapDbToProductStatus));
+        if (productsData) {
+          const mappedProducts = productsData.map(mapDbToProductStatus);
+          setProducts(mappedProducts);
+          localStorage.setItem('itemku-pricer-products', JSON.stringify(mappedProducts));
+        }
 
         // Fetch logs
         const logsData = await fetchWithRetry(() => 
           supabase.from('product_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200)
         );
         if (logsData) {
-          setLogs(logsData.map(l => ({
+          const mappedLogs = logsData.map(l => ({
             message: l.log_data?.message || 'Activity log entry',
             messageParams: parseParams(l.log_data?.messageParams),
             productName: l.log_data?.productName || l.log_data?.name || 'Product',
             createdAt: l.created_at
-          })));
+          }));
+          setLogs(mappedLogs);
+          localStorage.setItem('itemku-pricer-logs', JSON.stringify(mappedLogs));
         }
       } catch (error) {
         console.error('Error fetching latest data:', error);
       }
     };
 
-    // Load data
-    setLoading(true);
+    // Sinkronisasi data terbaru di latar belakang secara senyap
     fetchLatestData().finally(() => setLoading(false));
 
     // Realtime subscription
@@ -167,17 +186,23 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
         const targetData = payload.eventType === 'DELETE' ? payload.old : payload.new;
         if (targetData && targetData.user_id === user.id) {
           if (payload.eventType === 'DELETE') {
-            setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
+            setProducts(prev => {
+              const filtered = prev.filter(p => String(p.id) !== String(payload.old.id));
+              localStorage.setItem('itemku-pricer-products', JSON.stringify(filtered));
+              return filtered;
+            });
           } else {
             const updatedProduct = mapDbToProductStatus(payload.new);
             setProducts(prev => {
               const index = prev.findIndex(p => String(p.product_id) === String(updatedProduct.product_id));
+              let nextProducts = [...prev];
               if (index !== -1) {
-                const newProducts = [...prev];
-                newProducts[index] = updatedProduct;
-                return newProducts;
+                nextProducts[index] = updatedProduct;
+              } else {
+                nextProducts = [updatedProduct, ...prev];
               }
-              return [updatedProduct, ...prev];
+              localStorage.setItem('itemku-pricer-products', JSON.stringify(nextProducts));
+              return nextProducts;
             });
           }
         }
@@ -185,6 +210,7 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configurations' }, (payload) => {
         if (payload.new && payload.new.user_id === user.id) {
           setConfig(payload.new as UserConfig);
+          localStorage.setItem('itemku-pricer-config', JSON.stringify(payload.new));
         }
       })
       .subscribe();
@@ -259,25 +285,29 @@ export const UserDataProvider = ({ children }: { children: React.ReactNode }) =>
       if (error) throw error;
       
       if (data) {
-        setProducts(prev => prev.map(p => {
-          if (String(p.product_id) === String(productId)) {
-            return {
-              ...p,
-              status: data.status || 'success',
-              message: data.message || 'logic.waiting',
-              messageParams: data.messageParams || {},
-              myPrice: data.myPrice !== null ? data.myPrice : p.myPrice,
-              myStock: data.myStock !== null ? data.myStock : p.myStock,
-              mySoldCount: data.mySoldCount !== null ? data.mySoldCount : p.mySoldCount,
-              competitorPrice: data.competitorPrice,
-              competitorStoreName: data.competitorStoreName,
-              competitorStock: data.competitorStock,
-              competitorSoldCount: data.competitorSoldCount,
-              newPrice: data.newPrice || p.newPrice,
-            };
-          }
-          return p;
-        }));
+        setProducts(prev => {
+          const nextProducts = prev.map(p => {
+            if (String(p.product_id) === String(productId)) {
+              return {
+                ...p,
+                status: data.status || 'success',
+                message: data.message || 'logic.waiting',
+                messageParams: data.messageParams || {},
+                myPrice: data.myPrice !== null ? data.myPrice : p.myPrice,
+                myStock: data.myStock !== null ? data.myStock : p.myStock,
+                mySoldCount: data.mySoldCount !== null ? data.mySoldCount : p.mySoldCount,
+                competitorPrice: data.competitorPrice,
+                competitorStoreName: data.competitorStoreName,
+                competitorStock: data.competitorStock,
+                competitorSoldCount: data.competitorSoldCount,
+                newPrice: data.newPrice || p.newPrice,
+              };
+            }
+            return p;
+          });
+          localStorage.setItem('itemku-pricer-products', JSON.stringify(nextProducts));
+          return nextProducts;
+        });
       }
       return true;
     } catch (error) {

@@ -19,6 +19,23 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
+const getCachedProfile = (): Profile | null => {
+  try {
+    const cached = localStorage.getItem('itemku-pricer-profile');
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+};
+
+const hasLocalSession = (): boolean => {
+  try {
+    return Object.keys(localStorage).some(key => key.startsWith('sb-') && key.endsWith('-auth-token'));
+  } catch {
+    return false;
+  }
+};
+
 const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
@@ -32,12 +49,12 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<Profile | null>(getCachedProfile);
+  const [loading, setLoading] = useState(() => !getCachedProfile() || !hasLocalSession());
   const [syncingTime, setSyncingTime] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProfile = async (userId: string, retries = 8, delay = 2000) => {
+  const fetchProfile = async (userId: string, retries = 10) => {
     setError(null);
     setSyncingTime(false);
     
@@ -51,21 +68,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (profileError) {
         console.warn(`[Profiles Auth Sync] Attempt ${i + 1}/${retries} failed:`, profileError);
         
-        // Jika terdeteksi masalah perbedaan waktu server Supabase
         if (profileError.message?.includes('JWT issued at future') && i < retries - 1) {
           setSyncingTime(true);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          const backoffDelay = (i + 1) * 1000;
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
           continue;
         }
         
-        setError(`Gagal memuat profil pengguna: ${profileError.message}`);
-        setProfile(null);
+        // Jika gagal total dan tidak ada cache, baru tampilkan error
+        if (!profile) {
+          setError(`Gagal memuat profil pengguna: ${profileError.message}`);
+        }
       } else if (!data) {
-        setError('Profil tidak ditemukan. Silakan hubungi admin.');
-        setProfile(null);
+        if (!profile) {
+          setError('Profil tidak ditemukan. Silakan hubungi admin.');
+        }
       } else {
         setError(null);
         setProfile(data);
+        localStorage.setItem('itemku-pricer-profile', JSON.stringify(data));
       }
       break;
     }
@@ -91,9 +112,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && newUser)) {
         setSession(session);
         setUser(newUser);
-        setLoading(true);
+        // Jika sudah ada cache profil, tidak perlu set loading ke true agar UI instan
+        if (!localStorage.getItem('itemku-pricer-profile')) {
+          setLoading(true);
+        }
         fetchProfile(newUser!.id);
       } else if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('itemku-pricer-profile');
+        localStorage.removeItem('itemku-pricer-config');
+        localStorage.removeItem('itemku-pricer-products');
+        localStorage.removeItem('itemku-pricer-logs');
         setSession(null);
         setUser(null);
         setProfile(null);
