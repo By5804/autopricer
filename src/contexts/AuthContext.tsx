@@ -30,7 +30,9 @@ const getCachedProfile = (): Profile | null => {
 
 const hasLocalSession = (): boolean => {
   try {
-    return Object.keys(localStorage).some(key => key.startsWith('sb-') && key.endsWith('-auth-token'));
+    return Object.keys(localStorage).some(
+      (key) => key.startsWith('sb-') && key.endsWith('-auth-token')
+    );
   } catch {
     return false;
   }
@@ -50,7 +52,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(getCachedProfile);
-  const [loading, setLoading] = useState(() => !getCachedProfile() || !hasLocalSession());
+  const [loading, setLoading] = useState(() => {
+    // Jika ada profile di cache dan ada session token, bypass loading screen secara instan
+    const cached = getCachedProfile();
+    const hasSession = hasLocalSession();
+    return !(cached && hasSession);
+  });
   const [syncingTime, setSyncingTime] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,7 +82,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           continue;
         }
         
-        // Jika gagal total dan tidak ada cache, baru tampilkan error
         if (!profile) {
           setError(`Gagal memuat profil pengguna: ${profileError.message}`);
         }
@@ -95,13 +101,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    // Initial session check
+    // Cek sesi awal
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      
+      if (currentUser) {
+        fetchProfile(currentUser.id);
       } else {
+        localStorage.removeItem('itemku-pricer-profile');
+        setProfile(null);
         setLoading(false);
       }
     });
@@ -112,8 +122,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && newUser)) {
         setSession(session);
         setUser(newUser);
-        // Jika sudah ada cache profil, tidak perlu set loading ke true agar UI instan
-        if (!localStorage.getItem('itemku-pricer-profile')) {
+        
+        // Hanya tampilkan loading screen jika tidak ada cache sama sekali di browser
+        if (!getCachedProfile()) {
           setLoading(true);
         }
         fetchProfile(newUser!.id);
