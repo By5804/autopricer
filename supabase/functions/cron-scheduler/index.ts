@@ -9,10 +9,10 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  );
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     let force = false;
@@ -43,14 +43,24 @@ serve(async (req) => {
 
     const processedUserIds = new Set<string>();
     
-    // Memproses semua produk secara paralel menggunakan Promise.all
+    // Memproses semua produk secara paralel menggunakan fetch langsung untuk menghindari sensitivitas waktu JWT
     const promises = productsToProcess.map(async (item: any) => {
       processedUserIds.add(item.user_id);
       try {
-        const res = await supabaseAdmin.functions.invoke('process-single-product', {
-          body: { user_id: item.user_id, product_id: item.product_id },
+        const response = await fetch(`${supabaseUrl}/functions/v1/process-single-product`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseServiceKey,
+          },
+          body: JSON.stringify({ user_id: item.user_id, product_id: item.product_id }),
         });
-        return { id: item.product_id, success: !res.error };
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        return { id: item.product_id, success: true };
       } catch (err) {
         console.error(`[cron-scheduler] Error processing product ${item.product_id}:`, err);
         return { id: item.product_id, success: false };
