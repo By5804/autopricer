@@ -54,7 +54,7 @@ serve(async (req) => {
     const priceWarUndercut = Math.max(10, Number(warUndercut) || normalUndercut)
     const whitelistedStores = whitelist ? whitelist.split(',').map((n: string) => n.trim().toLowerCase()) : []
 
-    // 1. Ambil data pasar (Top 50) - Menghapus use_auto_delivery=true agar mendeteksi semua tipe pengiriman (termasuk manual)
+    // 1. Ambil data pasar (Top 50)
     const scrapeUrl = `https://api-gateway.itemku.com/v1/product?game_id=${product.game_id}&item_type_id=${product.item_type_id}&item_info_id=${product.item_info_id}&per_page=50&page=1&sort=cheap&is_enough_stock=1`
     console.log("[process-single-product] Scraping market data from URL:", scrapeUrl)
     
@@ -104,35 +104,30 @@ serve(async (req) => {
       console.log(`[process-single-product] Found my product in market list for ${productName}: Price=${result.myPrice}`)
     }
 
-    // Filter toko kita sendiri agar tidak bersaing dengan diri sendiri
+    // Filter toko kita sendiri
     const competitorsOnly = competitorList.filter((p: any) => p.seller?.shop_name?.trim().toLowerCase() !== normalizedMyStore)
-    console.log(`[process-single-product] Found ${competitorsOnly.length} competitors (excluding own store) for ${productName}`)
+    console.log(`[process-single-product] Found ${competitorsOnly.length} competitors for ${productName}`)
 
-    // Pengecekan jika stok produk kita sendiri kosong (0, null, atau undefined)
+    // Pengecekan jika stok produk kita sendiri kosong
     if (result.myStock === 0 || result.myStock === null || result.myStock === undefined) {
       result.status = 'SOLD'
       result.message = 'logic.outOfStock'
-      console.log(`[process-single-product] Product ${productName} is out of stock (stock is ${result.myStock}). Skipping price update.`)
     } else if (competitorsOnly.length === 0) {
       // Benar-benar tidak ada penjual lain di pasar
       if (result.myPrice !== null && result.myPrice < maxPrice) {
         result.newPrice = maxPrice
         result.status = 'updated'
         result.message = 'logic.onlySellerSetMax'
-        console.log(`[process-single-product] No competitors found. Setting price to maxPrice: ${maxPrice}`)
+        result.messageParams = { newPrice: maxPrice.toLocaleString('id-ID') }
       } else {
         result.status = 'success'
         result.message = 'logic.onlySellerAtMax'
-        console.log(`[process-single-product] No competitors found. Already at maxPrice or price is null.`)
       }
     } else {
       const p1 = competitorsOnly[0]
-      
-      // Tentukan apakah kita termurah di pasar
       const isCheapest = result.myPrice !== null && result.myPrice < p1.price
 
       if (isCheapest) {
-        // Kita termurah #1, maksimalkan profit terhadap kompetitor terdekat (p1)
         result.competitorPrice = p1.price
         result.competitorStoreName = p1.seller?.shop_name || 'Unknown'
         result.competitorStock = p1.stock
@@ -146,14 +141,11 @@ serve(async (req) => {
             newPrice: result.newPrice.toLocaleString('id-ID'),
             competitorStoreName: result.competitorStoreName
           }
-          console.log(`[process-single-product] We are cheapest. Maximizing profit against ${result.competitorStoreName}. New Price: ${result.newPrice}`)
         } else {
           result.status = 'success'
           result.message = 'logic.cheapestOptimal'
-          console.log(`[process-single-product] We are cheapest and price is optimal.`)
         }
       } else {
-        // Kita bukan termurah, cari target kompetitor di atas kita untuk di-undercut
         const target = competitorsOnly.find((p: any) => !whitelistedStores.includes(p.seller?.shop_name?.trim().toLowerCase()))
         
         const displayTarget = target || p1
@@ -177,24 +169,22 @@ serve(async (req) => {
               newPrice: result.newPrice.toLocaleString('id-ID'),
               minPrice: minPrice.toLocaleString('id-ID')
             }
-            console.log(`[process-single-product] Price war detected against rival: ${target.seller?.shop_name}. Undercutting to: ${result.newPrice}`)
           } else {
             result.message = 'logic.undercutting'
             result.messageParams = { 
               competitorStoreName: target.seller?.shop_name || 'Competitor', 
-              rank: competitorList.indexOf(target) + 1 
+              rank: competitorList.indexOf(target) + 1,
+              newPrice: result.newPrice.toLocaleString('id-ID')
             }
-            console.log(`[process-single-product] Undercutting competitor: ${target.seller?.shop_name}. New Price: ${result.newPrice}`)
           }
         } else {
           result.status = 'success'
           result.message = 'logic.holdPrice'
-          console.log(`[process-single-product] No valid target found (all whitelisted). Holding price.`)
         }
       }
     }
 
-    // Logika Floor (Min Price) & Eksekusi Update
+    // Logika Floor & Eksekusi Update
     if (result.status === 'updated' && result.newPrice !== null) {
       if (result.newPrice < minPrice) {
         result.newPrice = minPrice;
@@ -204,7 +194,6 @@ serve(async (req) => {
           minPrice: minPrice.toLocaleString('id-ID'),
           rivalStoreName: result.competitorStoreName || 'Market'
         };
-        console.log(`[process-single-product] Proposed price ${result.newPrice} is below minPrice ${minPrice}. Capping at minPrice.`)
       }
       
       const nonce = Math.floor(Date.now() / 1000).toString()
@@ -222,9 +211,6 @@ serve(async (req) => {
         result.status = 'error'
         result.message = 'logic.updateFail'
         result.messageParams = { errorMessage: upData.message || 'API Error' }
-        console.error(`[process-single-product] Price update API failed:`, upData)
-      } else {
-        console.log(`[process-single-product] Price update API success for ${productName} to ${result.newPrice}`)
       }
     }
 
@@ -248,7 +234,6 @@ serve(async (req) => {
       updated_at: new Date().toISOString()
     };
 
-    // Hanya perbarui cron_last_run_at jika ini adalah proses otomatis (bukan manual)
     if (!isManual) {
       updateFields.cron_last_run_at = new Date().toISOString();
     }
@@ -269,7 +254,6 @@ serve(async (req) => {
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
   } catch (error: any) {
-    console.error("[process-single-product] Error:", error.message)
     return new Response(JSON.stringify({ error: error.message, status: 'error' }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200 
